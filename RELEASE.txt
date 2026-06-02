@@ -1,0 +1,21 @@
+Pyramid -- Release Notes
+========================
+
+Version 0.1.0 (2026-06-03)
+--------------------------
+First tagged milestone. v0 (Text chat over serial) is PARTIAL -- only phase
+v0.1 is implemented. PYR-002 (text chat loop, v0.2) and PYR-003 (quality &
+UX, v0.3) remain open; see
+specification/roadmap/implementation/v0-execution-report.md.
+
+- PYR-001 (v0.1) Device skeleton and serial: AtomS3R + Echo Base bring-up
+  with M5Unified (display, button, LCD status line); Wi-Fi STA from a
+  gitignored config header; USB-CDC serial at 115200 turned into a
+  line-oriented text channel -- a typed line maps to a text_in event and is
+  echoed back. All status logging routes through logf() and is gated by
+  DEBUG_SERIAL.
+- Pure, Arduino-free line reader and text_in parser, with a host unit test
+  (10 checks passing); firmware validated by arduino-cli compile for
+  m5stack:esp32:m5stack_atoms3r (flash 32%, RAM 14%).
+- Repo baseline: specification (MISSION / ARCHITECTURE / ROADMAP), CLAUDE.md,
+  and the spec -> issues -> execute -> release workflow skills.
