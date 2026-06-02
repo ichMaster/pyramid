@@ -4,9 +4,8 @@
 //
 // In v0 the USB-CDC port is a plain-text channel (ARCHITECTURE §Protocols):
 // one inbound line maps to the device->server `text_in{text}` event, and the
-// device writes a reply line back. v0.1 has no AI yet, so the "reply" is an
-// echo; v0.2 (PYR-002) replaces formatReply() with the LLM reply while the
-// text_in mapping below stays put.
+// device writes a reply line back. The reply itself comes from the LLM in
+// v0.2 (see chat_api.h); this header owns only the text_in mapping.
 //
 // Pure, Arduino-free logic so it is host-testable alongside line_reader.h.
 
@@ -28,13 +27,6 @@ inline bool parseTextIn(const std::string& line, TextIn& out) {
   std::size_t e = line.find_last_not_of(ws);
   out.text = line.substr(b, e - b + 1);
   return !out.text.empty();
-}
-
-// v0.1 reply: echo the inbound text so the serial round-trip is visible.
-// The "echo: " prefix keeps it distinct from logf() status lines. Replaced by
-// the LLM reply in v0.2.
-inline std::string formatReply(const TextIn& in) {
-  return "echo: " + in.text;
 }
 
 }  // namespace pyramid

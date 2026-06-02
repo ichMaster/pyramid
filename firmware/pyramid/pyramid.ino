@@ -1,23 +1,27 @@
 // Pyramid — M5Stack Voice AI Chatbot.
-// v0.1 (PYR-001): device skeleton + serial.
+// v0.2 (PYR-002): text chat loop.
 //
 // Boots the AtomS3R + Echo Base, brings up Wi-Fi from config.h, and turns the
 // USB-CDC port into a line-oriented text channel: a typed line becomes a
-// `text_in` event and is echoed back. All status logging goes through logf(),
-// gated by DEBUG_SERIAL. The device stays thin — no persona/LLM logic here
-// (that arrives in v0.2 / PYR-002).
+// `text_in` event, is sent to a cloud LLM over direct HTTPS (persona from
+// config), and the model's reply is printed back. All status logging goes
+// through logf(), gated by DEBUG_SERIAL. The device stays thin — the persona
+// lives in config, not in logic; no memory/decisions on-device.
 //
-// Build/flash: Arduino IDE (board "M5AtomS3R", M5Unified) or
+// Build/flash: Arduino IDE (board "M5AtomS3R", M5Unified + ArduinoJson) or
 //   arduino-cli compile --fqbn m5stack:esp32:m5stack_atoms3r firmware/pyramid
-// Copy config.example.h -> config.h first.
+// Copy config.example.h -> config.h first and fill in Wi-Fi + LLM keys.
 
+#include <HTTPClient.h>
 #include <M5Unified.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 #include <cstdarg>
 #include <cstdio>
 #include <string>
 
+#include "chat_api.h"
 #include "config.h"
 #include "line_reader.h"
 #include "serial_protocol.h"
@@ -26,6 +30,8 @@ namespace {
 
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kWifiTimeoutMs = 20000;
+constexpr uint32_t kHttpConnectMs = 8000;
+constexpr uint32_t kHttpReadMs = 15000;
 
 pyramid::LineReader g_reader;
 
@@ -69,6 +75,52 @@ bool connectWiFi() {
   return true;
 }
 
+// One synchronous chat turn: POST the persona + user text to the LLM over
+// HTTPS and read back the reply. Returns true and sets `reply` on success;
+// returns false and sets `err` (a readable line) on any transport / HTTP /
+// JSON failure, so the caller never hangs or crashes the loop. One turn at a
+// time — streaming and history come later (v0.3 / v1).
+bool llmTurn(const std::string& userText, std::string& reply,
+             std::string& err) {
+  WiFiClientSecure client;
+  client.setInsecure();  // v0: no cert pinning under the private allowlist model
+
+  HTTPClient http;
+  http.setConnectTimeout(kHttpConnectMs);
+  http.setTimeout(kHttpReadMs);
+  if (!http.begin(client, LLM_ENDPOINT)) {
+    err = "http begin failed";
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + LLM_API_KEY);
+
+  const std::string body =
+      pyramid::buildChatRequest(LLM_MODEL, LLM_PERSONA, userText);
+  const int status = http.POST(String(body.c_str()));
+
+  if (status <= 0) {
+    err = std::string("transport error: ") +
+          HTTPClient::errorToString(status).c_str();
+    http.end();
+    return false;
+  }
+
+  const String payload = http.getString();
+  http.end();
+
+  if (status < 200 || status >= 300) {
+    std::string discard, perr;
+    // Prefer the API's own error message if the body carries one.
+    pyramid::parseChatReply(payload.c_str(), discard, perr);
+    err = "http " + std::to_string(status) +
+          (perr.empty() ? "" : ": " + perr);
+    return false;
+  }
+
+  return pyramid::parseChatReply(payload.c_str(), reply, err);
+}
+
 }  // namespace
 
 void setup() {
@@ -80,7 +132,7 @@ void setup() {
   const uint32_t t0 = millis();
   while (!Serial && millis() - t0 < 2000) delay(10);  // let USB-CDC enumerate
 
-  Serial.println("Pyramid v0.1 -- device skeleton + serial");
+  Serial.println("Pyramid v0.2 -- text chat loop");
   showStatus("boot");
 
   connectWiFi();
@@ -99,7 +151,21 @@ void loop() {
       pyramid::TextIn ev;
       if (pyramid::parseTextIn(line, ev)) {
         logf("text_in: \"%s\"", ev.text.c_str());
-        Serial.println(pyramid::formatReply(ev).c_str());  // v0.1: echo
+        if (WiFi.status() != WL_CONNECTED) {
+          // Wi-Fi auto-reconnect/backoff lands in v0.3 (PYR-003).
+          Serial.println("error: offline (no wifi)");
+        } else {
+          logf("thinking...");
+          showStatus("thinking");
+          std::string reply, err;
+          if (llmTurn(ev.text, reply, err)) {
+            Serial.println(reply.c_str());
+          } else {
+            Serial.print("error: ");
+            Serial.println(err.c_str());
+          }
+          showStatus("wifi OK");
+        }
       }
     }
   }

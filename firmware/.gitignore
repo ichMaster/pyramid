@@ -11,3 +11,4 @@ build/
 
 # Host test binaries
 test/test_line_reader
+test/test_chat_api

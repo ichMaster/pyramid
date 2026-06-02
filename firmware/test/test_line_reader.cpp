@@ -118,12 +118,6 @@ int main() {
     CHECK(!pyramid::parseTextIn("   \t\r", ev), "parse: blank -> false");
   }
 
-  // 10. formatReply echoes the text with the v0.1 prefix.
-  {
-    TextIn ev{"привіт"};  // Ukrainian round-trips as UTF-8 bytes
-    CHECK(pyramid::formatReply(ev) == "echo: привіт", "reply: echo prefix");
-  }
-
   if (g_failures == 0) {
     std::printf("ok - all tests passed\n");
     return 0;

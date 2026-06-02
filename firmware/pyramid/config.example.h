@@ -13,5 +13,19 @@
 #define WIFI_PASS "your-password"
 
 // Gate every status log through logf(). Set to false to quieten the device's
-// serial output; the reply/echo line is always written regardless.
+// serial output; the reply line is always written regardless.
 #define DEBUG_SERIAL true
+
+// --- LLM (v0.2) -------------------------------------------------------------
+// OpenAI-compatible chat-completions endpoint. Works with OpenAI, DeepSeek,
+// Qwen, etc. — e.g. https://api.deepseek.com/v1/chat/completions
+#define LLM_ENDPOINT "https://api.openai.com/v1/chat/completions"
+#define LLM_MODEL    "gpt-4o-mini"
+#define LLM_API_KEY  "sk-replace-me"
+
+// The persona system prompt — the device's character. Behavior is defined by
+// this config, not hardcoded in logic (config is the source of truth). In
+// v2+ this moves server-side into the Role.
+#define LLM_PERSONA \
+  "Ти — дружній голосовий помічник на ім'я Піраміда. " \
+  "Відповідай українською мовою, коротко, тепло і по суті."
