@@ -1,6 +1,22 @@
 Pyramid -- Release Notes
 ========================
 
+Version 0.2.0 (2026-06-03)
+--------------------------
+Phase v0.2 milestone (minor-bump-per-phase cadence, not the v1-complete
+mapping). v0 (Text chat over serial) is still PARTIAL -- PYR-003 (quality &
+UX, v0.3) remains open.
+
+- PYR-002 (v0.2) Text chat loop: each serial text_in is sent to a cloud LLM
+  over direct HTTPS (persona / model / endpoint / key from config.h) and the
+  model's reply is printed back. The turn is synchronous, with a "thinking..."
+  log while waiting. Request building and reply parsing use ArduinoJson v7 in
+  a pure, host-tested module (7 checks vs recorded mock responses); HTTP/JSON
+  errors surface as a readable line without hanging the loop. Replies are in
+  Ukrainian per the persona prompt.
+- Docs: added a root README (project overview, v0-v3 progression) and a
+  VERSION file.
+
 Version 0.1.0 (2026-06-03)
 --------------------------
 First tagged milestone. v0 (Text chat over serial) is PARTIAL -- only phase
