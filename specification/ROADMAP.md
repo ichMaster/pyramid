@@ -1,0 +1,257 @@
+# Roadmap — M5Stack Voice AI Chatbot ("Pyramid")
+
+Four self-contained versions, built in order: **v0** text → **v1** voice → **v2** server with a role → **v3** memory/horoscope/MCP. Versions are numbered from 0; phases inside a version are numbered `vA.B` (A = version, B = phase), e.g. `v1.2`. Each phase lists a goal, the work, a task list, and a Definition of Done (DoD). Every phase ships with the automated tests that encode its DoD (see ARCHITECTURE §Testing and CI). Firmware toolchain: **v0 in the Arduino IDE**, migrating to **PlatformIO from v1**.
+
+---
+
+## v0 — Text chat over serial
+
+The cheapest possible start: the device talks to a cloud LLM directly, with input and output as plain text over the USB-CDC serial link. No audio, no own server, no ASR/TTS. The aim is to get the full conversational loop working in text and to establish a debug channel that survives into every later version (`debug_serial`). Depends on: nothing — this is the foundation.
+
+### v0.1 — Device skeleton and serial
+
+**Goal:** the device powers on, connects over USB, and echoes in the serial monitor — the I/O channel before any AI exists.
+
+The Arduino-IDE sketch boots the board, brings up Wi-Fi from a config header, and turns the USB-CDC port into a line-oriented text channel. A typed line becomes a `text_in`; everything the firmware wants to log goes to the same port, gated by a `debug_serial` flag so it can be quietened later.
+
+**Tasks:**
+- Create the firmware sketch in the **Arduino IDE** with M5Unified; select the AtomS3R + Echo Base board and flash a blinking/boot-message baseline.
+- Initialize the board: display on, button, status line on the LCD.
+- Bring up Wi-Fi from credentials in a config header (`wifi_ssid`, `wifi_pass`); print connection state to serial.
+- Open USB-CDC serial at **115200**; implement a non-blocking line reader (buffer until `\n`).
+- Parse a completed line into a `text_in` event; route all logs through a `logf()` helper gated by `debug_serial`.
+- Echo received lines back so the round-trip is visible.
+
+**DoD:** you type a line in the serial monitor, it reaches the parser, and the firmware writes a response line back; Wi-Fi state is visible in the log.
+
+### v0.2 — Text chat loop
+
+**Goal:** you type in serial and get a real LLM reply, in Ukrainian, straight from the device.
+
+The firmware makes a direct HTTPS call to a cloud LLM, sending the persona system prompt (from the firmware config) plus the user's `text_in`, and prints the model's `reply` back to serial. The API key lives in the firmware config (acceptable only under the private allowlist model — see ARCHITECTURE §Security).
+
+**Tasks:**
+- Add an HTTPS client (TLS) and a minimal JSON builder/parser for the chosen LLM's chat API.
+- Store the persona system prompt, model name, endpoint, and API key in the firmware config header.
+- Build the request: `system = persona`, `messages = [{user: text_in}]`; send and read the response.
+- Extract `reply.text` and print it to serial; surface HTTP/JSON errors as a readable line.
+- Keep the call synchronous for now (one turn at a time); show a "thinking…" log while waiting.
+
+**DoD:** a full back-and-forth dialogue in Ukrainian, directly from the device over serial.
+
+### v0.3 — Quality and UX
+
+**Goal:** a text chat that holds up in normal use — short memory, and graceful handling of the network being imperfect.
+
+This phase makes the loop robust: a small rolling history so replies have context, sane behavior on timeouts/API errors, and automatic Wi-Fi recovery. Optional LCD hints make the device's state legible without the serial monitor.
+
+**Tasks:**
+- Keep a short in-RAM conversation history (last N turns) and include it in each LLM request; trim by turn count or a rough token budget.
+- Handle request timeouts and API errors: bounded retry, then a clear error line; never hang the loop.
+- Detect Wi-Fi loss and reconnect with backoff; pause input while offline and report status.
+- (Optional) Show coarse states/hints on the LCD: idle / thinking / error.
+
+**DoD:** the chat works reliably across typical scenarios — multi-turn context holds, transient failures recover, and a dropped Wi-Fi link comes back on its own.
+
+---
+
+## v1 — Voice
+
+Add a microphone, a speaker, and a voice loop; the device still talks to cloud AI directly. The build order is deliberately **output first, then input**: get TTS playback working from a typed prompt (v1.2) before tackling the harder speech-recognition path (v1.3), so each half is validated in isolation. Serial remains the debug channel throughout. Depends on: v0 (the LLM loop and serial are reused).
+
+### v1.1 — Audio I/O and PlatformIO migration
+
+**Goal:** the device can capture and play audio — the hardware foundation for voice — on a real build system.
+
+This phase moves the firmware off the Arduino IDE onto **PlatformIO** (so audio code, multiple source files, libraries, and on-host tests are manageable) and brings up the Echo Base I2S path in both directions with push-to-talk.
+
+**Tasks:**
+- Migrate the firmware to **PlatformIO**: add `platformio.ini` (board, framework, libraries), move sources into `firmware/`, confirm an identical build/flash; keep a one-line note of where the `.ino` moved.
+- Add a **native test environment** (`pio test -e native`) for host-testable logic (parsers, framing, state machine).
+- Bring up **I2S capture** at 16 kHz mono through the Echo Base mic; record into a PCM16 buffer while the button is held (push-to-talk).
+- Bring up **I2S playback** through the Echo Base speaker; play a test clip on release.
+- Add basic level/clipping checks and a fixed maximum record duration.
+
+**DoD:** the project builds and flashes from PlatformIO, and press-records / release-plays-back works through the Echo Base.
+
+### v1.2 — TTS output (spoken replies)
+
+**Goal:** you type in serial and *hear* the reply spoken — the output path proven before any ASR exists.
+
+The device takes the LLM `reply` from the v0 loop, sends it to a cloud Ukrainian TTS, and plays the returned audio through the Echo Base. Input is still text over serial; only the output becomes voice.
+
+**Tasks:**
+- Add a cloud **TTS** client (Ukrainian voice); send `reply.text`, receive PCM16/encoded audio.
+- Decode/stream the audio into the I2S playback path from v1.1.
+- Wire the pipeline `text_in` (serial) → LLM → TTS → playback; keep `text_in`/`reply` in serial for debugging.
+- Handle TTS timeouts/errors with a spoken-or-logged fallback; respect a max reply length.
+
+**DoD:** a typed prompt produces a spoken Ukrainian reply from the device.
+
+### v1.3 — ASR input (full voice loop)
+
+**Goal:** you speak and hear a reply — the complete voice exchange.
+
+With playback already solid, this phase adds the input half: push-to-talk capture feeds a cloud Ukrainian ASR, whose transcript drives the same LLM→TTS chain from v1.2.
+
+**Tasks:**
+- Capture held-button audio (v1.1) into a buffer; on release, send it to a cloud **ASR** (Ukrainian).
+- Feed the ASR transcript into the LLM (same persona config) → existing TTS → playback.
+- Keep `text_in`/`reply` mirrored to serial for debugging the whole chain.
+- Handle empty/failed recognition gracefully (re-prompt rather than calling the LLM with noise).
+
+**DoD:** a full spoken exchange in Ukrainian, end to end, from the device.
+
+### v1.4 — States and UX
+
+**Goal:** the voice interaction is legible and survives a flaky network.
+
+Add pause-based end-of-utterance so the user need not time the button perfectly, surface the turn state on the LCD, and harden the loop against Wi-Fi loss and stage timeouts.
+
+**Tasks:**
+- Detect end-of-utterance by pause (silence threshold + hangover), bounded by `recog_patience` from the config.
+- Drive LCD states through the turn: listening / thinking / replying / error.
+- Handle Wi-Fi loss and per-stage (ASR/LLM/TTS) timeouts mid-turn; recover to idle cleanly.
+- Tune the push-to-talk vs. pause-detection interplay so both feel natural.
+
+**DoD:** the voice chat works reliably, and the current state is always visible on the screen.
+
+---
+
+## v2 — Server with role configuration
+
+Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. Persona and voice become a configurable **Role** edited in a web console, and access is closed: accounts, device activation by code, and an allowlist. Depends on: v1 (the audio + turn loop move from the device to the server).
+
+### v2.1 — Server proxy
+
+**Goal:** the same chat as v1, but routed through our own server instead of direct cloud calls.
+
+A FastAPI + websockets server terminates a single duplex WSS channel and runs the turn orchestrator; the device only streams audio/text and renders results. The serial path keeps working as a local debug client through the server.
+
+**Tasks:**
+- Stand up a **WSS** server (FastAPI + `websockets`), TLS-terminated.
+- Implement the device↔server contract: device→ `hello`, `listen_start`, `audio`(bin), `listen_stop`, `text_in`; server→ `asr`/`asr_partial`, `reply`, `text_out`, `tts_audio`(bin), `tts_end`, `error`, `config_updated`, `restart` (see ARCHITECTURE §WS device↔server).
+- Move the **ASR→LLM→TTS** orchestration server-side; stream per stage (clause-boundary TTS).
+- Convert the firmware into a WSS client that streams mic audio and plays returned TTS; serial bridges as a local debug client.
+- Add per-stage timeouts and the enumerated `error.code` set.
+
+**DoD:** the device runs end-to-end through our server, with the same voice experience as v1.
+
+### v2.2 — Role config
+
+**Goal:** the assistant has a configurable character and voice.
+
+Introduce the `Role` model and build the system prompt from it; the role also selects the LLM and the voice parameters.
+
+**Tasks:**
+- Define `Role{name, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model).
+- Assemble the system prompt from the persona; pass voice params to TTS and `recog_patience` to end-of-utterance.
+- Keep short in-session history (per `Session`) and feed it to the LLM with windowing.
+- Allow LLM selection per role; load the active role at connection time.
+
+**DoD:** changing the role visibly changes the assistant's behavior and voice.
+
+### v2.3 — Web console
+
+**Goal:** manage the assistant without reflashing.
+
+A minimal web UI edits the role fields and persists them; saving signals the device to pick up the change.
+
+**Tasks:**
+- Build a web UI (the `/console`) with the role fields, Save / Reset.
+- Persist roles in **SQLite**; load the active role on connect.
+- On save, emit `config_updated` / `restart` to the bound device so the change applies.
+- Validate inputs (ranges for pitch/speed/`recog_patience`, model allowlist).
+
+**DoD:** the role is edited in the console and applied after a restart, no firmware changes needed.
+
+### v2.4 — Closed access
+
+**Goal:** a private online service — only known devices and users get in.
+
+Deploy behind TLS, add console login, bind devices by activation code, and reject everything not on the allowlist.
+
+**Tasks:**
+- Deploy online: HTTPS/WSS + TLS behind a reverse proxy (nginx/Caddy); `dev`/`prod` split via `.env`.
+- Add accounts (`pass_hash` = argon2id) and console login (cookie/JWT); rate-limit login and `/activate`.
+- Implement device activation: `POST /activate {device_id} → {code}` (single-use, short TTL); admin binds the code; device stores its `device_token` in NVS.
+- Enforce the allowlist: unknown `device_token` → `error{unauthorized}` and the socket closes; support token revocation.
+
+**DoD:** only authorized devices and users have access; an unbound device is rejected.
+
+---
+
+## v3 — Memory, horoscope-temperament, and MCP
+
+A living persona: it remembers the user across sessions, shifts its daily mood by horoscope, and reaches services uniformly through MCP. Depends on: v2 (server, role, accounts, console). MCP becomes the single extension mechanism — role, memory, knowledge, and external services all plug in the same way.
+
+### v3.1 — Long-term memory
+
+**Goal:** the assistant remembers things from previous sessions.
+
+Persist salient facts as `MemoryItem`s scoped to the account, recall them during a turn, and let the user inspect/clear memory from the console. The role's `memory_type` gates the behavior.
+
+**Tasks:**
+- Add `MemoryItem{id, account_id, text, meta, embedding?, ts}` storage in SQLite (vectors via `sqlite-vec` when `memory_type=longterm`).
+- Save salient facts during conversation; recall by query before assembling the prompt (keyword first, embeddings within the phase).
+- Surface memory in the console: list and clear; honor `memory_type ∈ {none, session, longterm}`.
+
+**DoD:** the assistant recalls facts stated in earlier sessions, and memory can be viewed/cleared.
+
+### v3.2 — MCP layer
+
+**Goal:** the assistant uses services uniformly, calling tools itself.
+
+Introduce an MCP client in the server and move `role`, `memory`, `knowledge_base` behind MCP; integrate tool-calling into the LLM turn and add a user knowledge base (optionally `weather`).
+
+**Tasks:**
+- Add an **MCP client** to the server; define transport per service (in-process/stdio for internal, HTTP/SSE for networked).
+- Move `role`, `memory`, `knowledge_base` into MCP services exposing the contracts in ARCHITECTURE §MCP tools/resources.
+- Integrate the **tool loop** into the turn: bounded iterations, tool results fed back, degraded reply on tool error/timeout.
+- Build the knowledge base: ingest user docs, chunk + embed, `kb.search(query,k)`.
+- (Optional) add a `weather` MCP service.
+
+**DoD:** the agent calls memory, knowledge, and weather through MCP on its own.
+
+### v3.3 — Horoscope-temperament
+
+**Goal:** the character's tone and voice vary, livingly, day to day.
+
+Fix a natal chart on the role; an astro engine computes daily transits into temperament dials that color the prompt and the TTS voice — without touching competence.
+
+**Tasks:**
+- Add a fixed `natal_chart` (JSON snapshot) to the role at creation.
+- Build the astro engine (**skyfield**): once per local day, compute transits → dials (energy, warmth, verbosity, speech speed, pitch), each bounded; cache per day.
+- Inject a temperament block into the system prompt and map the dials onto TTS pitch/speed.
+- Isolate from competence: dials never change willingness or correctness; expose `temperament.today(role_id)` internally.
+
+**DoD:** tone and voice noticeably differ across days without degrading answer quality.
+
+### v3.4 — Persona integration
+
+**Goal:** one coherent living character, drawing on everything at once.
+
+Combine the role canon, the day's temperament, recalled memory, and MCP results into a single reply with a clear priority order, and open the door to custom MCP endpoints.
+
+**Tasks:**
+- Assemble one prompt from: role canon + temperament block + recalled memory + available MCP tools.
+- Define and enforce priority/reconciliation (canon and competence outrank temperament; memory informs but doesn't override the persona).
+- Allow connecting custom MCP endpoints to a role.
+- End-to-end check that all parts cooperate while one consistent character is presented outward.
+
+**DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
+
+---
+
+## Mapping of protocols and contracts
+
+- Serial protocol (text) and `text_in`/`reply` — v0.1, v0.2.
+- On-device audio (I2S) and the PlatformIO migration — v1.1.
+- WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
+- Activation and auth contracts — v2.4.
+- MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
+- Temperament contract (`temperament.today`) — v3.3.
+
+## Deferred (beyond v0–v3)
+
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, multi-board support, role templates and AI Optimize, on-screen emotion engine.
