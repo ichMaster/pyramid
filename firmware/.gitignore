@@ -1,0 +1,13 @@
+# Firmware secrets — copy config.example.h to config.h and fill in locally.
+# config.h holds Wi-Fi creds (and the LLM key from v0.2); never commit it.
+config.h
+
+# Arduino / arduino-cli build output
+build/
+*.bin
+*.elf
+*.hex
+*.map
+
+# Host test binaries
+test/test_line_reader
