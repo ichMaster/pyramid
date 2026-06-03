@@ -47,4 +47,19 @@ inline bool parseAsrTranscript(const std::string& body, std::string& transcript,
   return true;
 }
 
+// Extract the host from an `https://host[:port]/path` URL (v1.4 ASR pre-warm).
+// Used to open the TLS connection to the ASR host ahead of the POST, so the
+// handshake overlaps the user's speech. Returns the bare host (no scheme, no
+// port, no path); empty on a URL without a recognizable host.
+inline std::string parseHost(const std::string& url) {
+  std::string s = url;
+  const std::string::size_type scheme = s.find("://");
+  if (scheme != std::string::npos) s = s.substr(scheme + 3);
+  const std::string::size_type slash = s.find('/');
+  if (slash != std::string::npos) s = s.substr(0, slash);
+  const std::string::size_type colon = s.find(':');  // strip an explicit port
+  if (colon != std::string::npos) s = s.substr(0, colon);
+  return s;
+}
+
 }  // namespace pyramid

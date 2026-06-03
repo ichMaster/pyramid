@@ -9,11 +9,25 @@
 #include "asr_api.h"
 
 using pyramid::parseAsrTranscript;
+using pyramid::parseHost;
 
 #define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
 
 void setUp(void) {}
 void tearDown(void) {}
+
+// Host extraction for the v1.4 ASR pre-warm: bare host, no scheme/port/path.
+void test_parse_host(void) {
+  CHECK(parseHost("https://api.deepgram.com/v1/listen?model=nova-2") ==
+            "api.deepgram.com",
+        "host from full deepgram url");
+  CHECK(parseHost("https://api.deepgram.com") == "api.deepgram.com",
+        "host with no path");
+  CHECK(parseHost("https://example.com:8443/x") == "example.com",
+        "explicit port stripped");
+  CHECK(parseHost("api.deepgram.com/v1/listen") == "api.deepgram.com",
+        "host without scheme");
+}
 
 void test_all(void) {
   // Success: transcript + confidence extracted (UTF-8 Ukrainian).
@@ -69,5 +83,6 @@ void test_all(void) {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_all);
+  RUN_TEST(test_parse_host);
   return UNITY_END();
 }
