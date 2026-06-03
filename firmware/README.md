@@ -49,6 +49,13 @@ board at runtime.
   exponential backoff, input is paused while offline, and the LCD shows
   `idle / thinking / error / offline`. Only successful turns are committed to
   history, so a failed call can't poison the context.
+- **v1.1 (PYR-004…007):** PlatformIO build + native test env, and **audio I/O**
+  on the Atomic Echo Base (ES8311, enabled via `cfg.external_speaker.atomic_echo`).
+  **Push-to-talk:** hold BtnA to record 16 kHz mono PCM16 (bounded by
+  `REC_MAX_MS`, with level/clip logging), release to **hear it played back** —
+  the record→playback loop. Mic and speaker share the bus, so each side is
+  ended before the other is begun (per M5Unified's Microphone example). The
+  voice path (TTS/ASR) builds on this in v1.2+.
 
 After each reply the device prints a per-turn stats line, e.g.
 `[stats] first_token=420 ms  total=1180 ms  tokens: in=48 out=73 total=121`.

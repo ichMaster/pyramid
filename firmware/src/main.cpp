@@ -147,13 +147,9 @@ void serviceWiFi() {
 void recordWhileHeld() {
   showStatus("listening");
   logf("rec: start");
-  // Mic is enabled once in setup(); re-enable only if a prior speaker use (from
-  // v1.2+) disabled it on the shared ES8311 codec.
-  if (!M5.Mic.isEnabled() && !M5.Mic.begin()) {
-    logf("rec: mic begin failed");
-    showStatus("error");
-    return;
-  }
+  // The device sits in mic mode (setup() and playbackCaptured() leave the mic
+  // begun on the shared ES8311 / I2S). record() also auto-begins if needed.
+  if (!M5.Mic.isEnabled()) M5.Mic.begin();
 
   size_t total = 0;
   constexpr size_t kChunk = 512;
@@ -173,6 +169,37 @@ void recordWhileHeld() {
   logf("rec: %u samples (%u ms) peak=%d clipped=%u", static_cast<unsigned>(g_pcmLen),
        static_cast<unsigned>(ms), static_cast<int>(st.peak),
        static_cast<unsigned>(st.clipped));
+  showStatus("idle");
+}
+
+// Playback (v1.1): play the just-captured PCM16 buffer through the Echo Base
+// speaker, then return to mic mode. Mic and speaker share the ES8311 / I2S, so
+// (per M5Unified's Microphone example) we drain the mic DMA, end the mic, begin
+// the speaker, play, end the speaker, and re-begin the mic — ending the active
+// side before claiming the bus avoids tearing down I2S under a live task. This
+// proves the push-to-talk record -> playback loop (v1.1 DoD); v1.2 renders
+// cloud TTS through the same path.
+void playbackCaptured() {
+  if (g_pcmLen == 0) return;
+  showStatus("playing");
+  logf("play: %u samples", static_cast<unsigned>(g_pcmLen));
+
+  while (M5.Mic.isRecording()) delay(1);  // let capture DMA finish first
+  M5.Mic.end();                           // release the shared bus
+  if (!M5.Speaker.begin()) {
+    logf("play: speaker begin failed");
+    M5.Mic.begin();  // restore mic mode
+    showStatus("error");
+    return;
+  }
+  M5.Speaker.setVolume(SPK_VOLUME);
+  M5.Speaker.playRaw(g_pcm, g_pcmLen, AUDIO_SAMPLE_RATE);  // mono PCM16
+  while (M5.Speaker.isPlaying()) {
+    M5.update();
+    delay(1);
+  }
+  M5.Speaker.end();  // hand the bus back
+  M5.Mic.begin();    // return to mic mode for the next push-to-talk
   showStatus("idle");
 }
 
@@ -344,7 +371,10 @@ void setup() {
   cfg.external_speaker.atomic_echo = true;
   M5.begin(cfg);
   M5.Display.setTextSize(2);
-  M5.Mic.begin();  // ES8311 mic; speaker is enabled on demand (v1.2+)
+  // M5.begin enables the speaker; start in mic mode on the shared ES8311 bus
+  // (the record/playback switch is handled in recordWhileHeld/playbackCaptured).
+  M5.Speaker.end();
+  M5.Mic.begin();
 
   Serial.begin(kSerialBaud);
   const uint32_t t0 = millis();
@@ -408,9 +438,10 @@ void loop() {
     }
   }
 
-  // Push-to-talk: hold BtnA to record from the mic (v1.1).
+  // Push-to-talk: hold BtnA to record from the mic, release to hear it back.
   if (M5.BtnA.isPressed()) {
-    recordWhileHeld();
+    recordWhileHeld();   // returns on release
+    playbackCaptured();  // play the captured buffer through the speaker
   }
 
   delay(5);
