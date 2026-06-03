@@ -1,6 +1,22 @@
 Pyramid -- Release Notes
 ========================
 
+Version 1.1.0 (2026-06-03)
+--------------------------
+v1.1 milestone -- Voice, phase 1: Audio I/O and the PlatformIO migration.
+(Version notation A.B.C: A = global version (v1), B = phase (1), C = post-
+release fix.) v1 is still in progress -- v1.2 (TTS), v1.3 (ASR), and v1.4
+(states/UX) remain.
+
+- PYR-004 PlatformIO migration: firmware moved off the Arduino IDE to
+  PlatformIO (src/ layout, atoms3r + native envs); identical build/flash.
+- PYR-005 Native test environment: pio test -e native (Unity) runs the pure-
+  logic suites (line reader, text_in, history, backoff, SSE, audio) on the host.
+- PYR-006 I2S audio capture: push-to-talk record of 16 kHz mono PCM16 from the
+  Atomic Echo Base mic (ES8311), with level/clip checks and a max duration.
+- PYR-007 I2S audio playback: play the captured buffer on release -- the
+  record -> playback loop. Verified on hardware (audible, stable).
+
 Version 0.3.1 (2026-06-03)
 --------------------------
 Streaming refinement of the v0 text chat. The device now streams Claude's
