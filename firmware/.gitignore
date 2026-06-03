@@ -2,6 +2,9 @@
 # config.h holds Wi-Fi creds (and the LLM key from v0.2); never commit it.
 config.h
 
+# PlatformIO build output
+.pio/
+
 # Arduino / arduino-cli build output
 build/
 *.bin

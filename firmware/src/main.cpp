@@ -11,10 +11,14 @@
 // status logging goes through logf(), gated by DEBUG_SERIAL. The device stays
 // thin — persona + history shape the request, but no decisions live on-device.
 //
-// Build/flash: Arduino IDE (board "M5AtomS3R", M5Unified + ArduinoJson) or
-//   arduino-cli compile --fqbn m5stack:esp32:m5stack_atoms3r firmware/pyramid
-// Copy config.example.h -> config.h first and fill in Wi-Fi + LLM keys.
+// Build/flash (PlatformIO, from v1.1): from firmware/ run
+//   pio run                 # compile
+//   pio run -t upload       # flash the AtomS3R
+//   pio device monitor      # serial @115200
+// Copy src/config.example.h -> src/config.h first and fill in Wi-Fi + LLM keys.
+// (v0 was built in the Arduino IDE; the sketch pyramid.ino moved to this file.)
 
+#include <Arduino.h>
 #include <HTTPClient.h>
 #include <M5Unified.h>
 #include <WiFi.h>
