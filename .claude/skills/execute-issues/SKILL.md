@@ -149,10 +149,11 @@ If implementation or validation fails for an issue:
 
 ### Step 3b: Version bump on completion
 
-After ALL issues in the version are completed successfully (none failed, none remaining):
+**Do NOT bump the version automatically.** Never change the version (VERSION file, RELEASE.txt, or git tag) without explicit user confirmation. When a phase/version's issues are all done, report completion and let the user decide whether/when to release via `/release-version`.
 
-1. Determine the target semver from the version:
-   - v0 -> `0.1.0`, v1 -> `0.2.0`, v2 -> `0.3.0`, v3 -> `1.0.0`
+If — and only if — the user confirms a release:
+
+1. Determine the target semver from the version notation `A.B.C` (`A` = global/roadmap version, `B` = phase, `C` = post-release fix). Roadmap phase `vA.B` → semver `A.B.0` (e.g. v1.1 → `1.1.0`).
 
 2. Update `README.md` with a version note if appropriate
 

@@ -19,7 +19,7 @@ Examples:
 
 If no changelog items are provided, analyze uncommitted or recent commits since the last tag to auto-generate the changelog.
 
-Convention: completing a pyramid version maps to a semver bump — v0 -> `0.1.0`, v1 -> `0.2.0`, v2 -> `0.3.0`, v3 -> `1.0.0`.
+Version notation `A.B.C`: `A` = global/roadmap version (v0→0, v1→1, v2→2, v3→3), `B` = phase within that version (`v1.1`→B=1), `C` = post-release fix on that phase. So roadmap phase `vA.B` → semver `A.B.0`; a fix after it bumps `C` (e.g. v0.3 → `0.3.0`, streaming fix → `0.3.1`; v1.1 → `1.1.0`). Releases are cut per phase. **Never change the version without explicit user confirmation.**
 
 ## Instructions
 
