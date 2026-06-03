@@ -63,6 +63,10 @@ constexpr uint32_t kRetryCapMs = 4000;
 constexpr uint32_t kWifiBackoffBaseMs = 500;
 constexpr uint32_t kWifiBackoffCapMs = 8000;
 
+// How long the Error state lingers on the LCD before auto-returning to Idle
+// (v1.4 resilience). The loop never gets stuck on Error.
+constexpr uint32_t kErrorDwellMs = 2000;
+
 pyramid::LineReader g_reader;
 pyramid::History g_history(HISTORY_MAX_TURNS);
 
@@ -103,6 +107,7 @@ void logf(const char* fmt, ...) {
 // expose applyEvent() so every path updates state the same way. Starts Offline
 // (boot, before the first Wi-Fi connect).
 pyramid::TurnState g_state = pyramid::TurnState::Offline;
+uint32_t g_errorSinceMs = 0;  // when we entered Error (for the auto-return dwell)
 
 // State -> LCD background color (firmware-only; the label lives in states.h).
 uint16_t stateColor(pyramid::TurnState s) {
@@ -131,11 +136,36 @@ void renderState() {
 
 void setState(pyramid::TurnState s) {
   g_state = s;
+  if (s == pyramid::TurnState::Error) g_errorSinceMs = millis();
   renderState();
 }
 
 // Drive a transition through the pure state machine, then render it.
 void applyEvent(pyramid::TurnEvent e) { setState(pyramid::nextState(g_state, e)); }
+
+// Leave the shared ES8311 / I2S bus in mic mode no matter how a turn ended
+// (v1.4): a mid-turn abort during the mic<->speaker switch must never leave the
+// speaker begun or the mic stopped. Safe to call from any state.
+void ensureMicMode() {
+  if (M5.Speaker.isEnabled()) M5.Speaker.end();
+  if (!M5.Mic.isEnabled()) M5.Mic.begin();
+}
+
+// Centralized mid-turn failure (v1.4): log it, restore the audio bus, and pick
+// the right recovery state — Offline (input paused) if Wi-Fi dropped, else Error
+// (which auto-returns to Idle after kErrorDwellMs). The bounded per-stage
+// timeouts guarantee we reach here instead of hanging.
+void failTurn(const char* what) {
+  Serial.print("error: ");
+  Serial.println(what);
+  ensureMicMode();
+  if (WiFi.status() != WL_CONNECTED) {
+    g_offline = true;
+    applyEvent(pyramid::TurnEvent::WifiLost);  // -> Offline; serviceWiFi recovers
+  } else {
+    applyEvent(pyramid::TurnEvent::Fail);  // -> Error -> (dwell) -> Idle
+  }
+}
 
 bool connectWiFi() {
   logf("wifi: connecting to \"%s\"", WIFI_SSID);
@@ -195,9 +225,9 @@ void serviceWiFi() {
 void recordWhileHeld() {
   applyEvent(pyramid::TurnEvent::Listen);  // -> Listening
   logf("rec: start");
-  // The device sits in mic mode (setup() and playbackCaptured() leave the mic
-  // begun on the shared ES8311 / I2S). record() also auto-begins if needed.
-  if (!M5.Mic.isEnabled()) M5.Mic.begin();
+  // Make sure we own the shared ES8311 / I2S bus in mic mode — defensive in case
+  // a prior turn aborted mid-switch (v1.4 resilience).
+  ensureMicMode();
 
   // Pause-based end-of-utterance (v1.4): each captured chunk's peak is fed to
   // the endpointer, so capture stops on a natural pause without releasing the
@@ -253,9 +283,7 @@ void playbackCaptured() {
   while (M5.Mic.isRecording()) delay(1);  // let capture DMA finish first
   M5.Mic.end();                           // release the shared bus
   if (!M5.Speaker.begin()) {
-    logf("play: speaker begin failed");
-    M5.Mic.begin();  // restore mic mode
-    applyEvent(pyramid::TurnEvent::Fail);  // -> Error
+    failTurn("speaker begin failed");  // restores mic mode + Error/Offline
     return;
   }
   M5.Speaker.setVolume(SPK_VOLUME);
@@ -657,11 +685,9 @@ void handleTurn(const std::string& userText) {
       applyEvent(pyramid::TurnEvent::Done);  // degraded to text -> Idle
     }
   } else {
-    Serial.print("error: ");
-    Serial.println(a.err.c_str());
     Serial.printf("[stats] failed after %lu ms\n",
                   static_cast<unsigned long>(allMs));
-    applyEvent(pyramid::TurnEvent::Fail);  // -> Error
+    failTurn(a.err.c_str());  // Error (auto-returns to Idle) or Offline if Wi-Fi dropped
   }
 }
 
@@ -705,7 +731,11 @@ void voiceTurn() {
   float confidence = 0.0f;
   const uint32_t asrStart = millis();
   if (!asrTranscribe(g_pcm, g_pcmLen, transcript, confidence, err)) {
-    rePrompt(err.c_str());  // empty / 408 after retries / timeout → spoken nudge
+    if (WiFi.status() != WL_CONNECTED) {
+      failTurn(err.c_str());  // a network drop, not a misheard phrase -> Offline
+    } else {
+      rePrompt(err.c_str());  // empty / garbled / timeout → spoken nudge
+    }
     return;
   }
   if (g_voiceActive) g_stamps.asrMs = millis() - asrStart;
@@ -745,6 +775,13 @@ void setup() {
 void loop() {
   M5.update();
   serviceWiFi();
+
+  // Resilience (v1.4): never get stuck on Error — auto-return to Idle once the
+  // failure has been visible for kErrorDwellMs.
+  if (g_state == pyramid::TurnState::Error &&
+      millis() - g_errorSinceMs > kErrorDwellMs) {
+    applyEvent(pyramid::TurnEvent::Done);  // Error -> Idle
+  }
 
   // Non-blocking: drain whatever bytes arrived this tick through the reader.
   while (Serial.available() > 0) {
