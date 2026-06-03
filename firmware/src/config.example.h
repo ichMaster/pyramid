@@ -80,3 +80,14 @@
 // speech (~30 bytes/s of Ukrainian) or the audio is cut at the buffer; the full
 // reply always stays on serial. The terse persona keeps replies well under this.
 #define TTS_MAX_CHARS     200
+
+// --- ASR (v1.3): Deepgram --------------------------------------------------
+// Speech-to-text. Deepgram prerecorded accepts raw 16 kHz mono PCM16 (no
+// multipart/WAV): POST the captured g_pcm bytes to
+//   {ASR_ENDPOINT}?model={ASR_MODEL}&language={ASR_LANG}&encoding=linear16&sample_rate={rate}
+// with header `Authorization: Token <key>`. Get a key at console.deepgram.com.
+#define ASR_ENDPOINT     "https://api.deepgram.com/v1/listen"
+#define ASR_API_KEY      "dg-replace-me"   // Authorization: Token <key>
+#define ASR_MODEL        "nova-2"
+#define ASR_LANG         "uk"
+#define ASR_SAMPLE_RATE  AUDIO_SAMPLE_RATE  // 16 kHz; matches capture

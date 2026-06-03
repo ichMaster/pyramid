@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "asr_api.h"
 #include "audio.h"
 #include "backoff.h"
 #include "chat_api.h"
@@ -46,6 +47,7 @@ constexpr uint32_t kWifiTimeoutMs = 20000;
 constexpr uint32_t kHttpConnectMs = 8000;
 constexpr uint32_t kHttpReadMs = 15000;
 constexpr uint32_t kTtsReadMs = 15000;  // TTS audio read budget (v1.2)
+constexpr uint32_t kAsrReadMs = 15000;  // ASR read budget (v1.3)
 
 // Bounded retry for transient LLM failures (transport / 429 / 5xx).
 constexpr int kMaxRetries = 2;
@@ -311,6 +313,56 @@ bool ttsFetch(const std::string& text, std::string& err) {
   logf("tts: %u samples (%u ms)", static_cast<unsigned>(g_pcmLen),
        static_cast<unsigned>(g_pcmLen * 1000ull / TTS_SAMPLE_RATE));
   return true;
+}
+
+// ASR (v1.3): transcribe captured PCM16 (`g_pcm`-style buffer) via Deepgram.
+// POSTs the raw bytes (linear16, no multipart) and parses the transcript. Sets
+// `transcript` + returns true on a non-empty result; false + readable `err`
+// otherwise (the caller re-prompts on empty/error — PYR-013). `confidence` is
+// 0..1 on success. Network read; verified on hardware.
+[[maybe_unused]] bool asrTranscribe(const int16_t* pcm, size_t samples,
+                                    std::string& transcript, float& confidence,
+                                    std::string& err) {
+  if (samples == 0) {
+    err = "asr: no audio";
+    return false;
+  }
+  WiFiClientSecure client;
+  client.setInsecure();  // v0: no cert pinning under the private allowlist model
+
+  HTTPClient http;
+  http.setConnectTimeout(kHttpConnectMs);
+  http.setTimeout(kAsrReadMs);
+  const String url = String(ASR_ENDPOINT) + "?model=" + ASR_MODEL +
+                     "&language=" + ASR_LANG +
+                     "&encoding=linear16&sample_rate=" + String(ASR_SAMPLE_RATE);
+  if (!http.begin(client, url)) {
+    err = "asr: http begin failed";
+    return false;
+  }
+  http.addHeader("Authorization", String("Token ") + ASR_API_KEY);
+  http.addHeader("Content-Type", "application/octet-stream");
+
+  const int status = http.POST(
+      reinterpret_cast<uint8_t*>(const_cast<int16_t*>(pcm)),
+      samples * sizeof(int16_t));
+  if (status != 200) {
+    const String payload = http.getString();
+    err = "asr: http " + std::to_string(status);
+    if (payload.length()) err += ": " + std::string(payload.c_str()).substr(0, 120);
+    http.end();
+    return false;
+  }
+  const String payload = http.getString();
+  http.end();
+
+  const bool ok = pyramid::parseAsrTranscript(payload.c_str(), transcript,
+                                              confidence, err);
+  if (ok) {
+    logf("asr: \"%s\" (conf %d%%)", transcript.c_str(),
+         static_cast<int>(confidence * 100));
+  }
+  return ok;
 }
 
 // Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
