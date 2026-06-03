@@ -42,6 +42,7 @@
 #include "timing.h"
 #include "tts_api.h"
 #include "ulaw.h"
+#include "vad.h"
 
 namespace {
 
@@ -198,12 +199,28 @@ void recordWhileHeld() {
   // begun on the shared ES8311 / I2S). record() also auto-begins if needed.
   if (!M5.Mic.isEnabled()) M5.Mic.begin();
 
+  // Pause-based end-of-utterance (v1.4): each captured chunk's peak is fed to
+  // the endpointer, so capture stops on a natural pause without releasing the
+  // button. Button release still ends it immediately (the while condition).
+  pyramid::Endpointer ep{VAD_SILENCE_PEAK, VAD_HANGOVER_MS, RECOG_PATIENCE_MS};
   size_t total = 0;
   constexpr size_t kChunk = 512;
+  bool endedByPause = false;
   while (M5.BtnA.isPressed() && total < kMaxSamples) {
     const size_t want = pyramid::capSamples(kChunk, kMaxSamples - total);
     if (M5.Mic.record(&g_pcm[total], want, AUDIO_SAMPLE_RATE)) {
+      while (M5.Mic.isRecording()) {  // let this chunk finish before analyzing
+        M5.update();
+        delay(1);
+      }
+      const pyramid::PcmStats cs = pyramid::analyzePcm(&g_pcm[total], want, 32700);
+      const uint32_t chunkMs =
+          static_cast<uint32_t>(want * 1000ull / AUDIO_SAMPLE_RATE);
       total += want;
+      if (ep.feed(cs.peak, chunkMs)) {  // natural pause or recog_patience cap
+        endedByPause = true;
+        break;
+      }
     }
     M5.update();
   }
@@ -213,9 +230,10 @@ void recordWhileHeld() {
   const pyramid::PcmStats st = pyramid::analyzePcm(g_pcm, g_pcmLen, 32700);
   const uint32_t ms =
       static_cast<uint32_t>(g_pcmLen * 1000ull / AUDIO_SAMPLE_RATE);
-  logf("rec: %u samples (%u ms) peak=%d clipped=%u", static_cast<unsigned>(g_pcmLen),
-       static_cast<unsigned>(ms), static_cast<int>(st.peak),
-       static_cast<unsigned>(st.clipped));
+  logf("rec: %u samples (%u ms) peak=%d clipped=%u end=%s",
+       static_cast<unsigned>(g_pcmLen), static_cast<unsigned>(ms),
+       static_cast<int>(st.peak), static_cast<unsigned>(st.clipped),
+       endedByPause ? "pause" : "release");
   // No state change here: voiceTurn() fires Think (transcribing) or Done (gated
   // out) next, so we don't flash Idle between capture and processing.
 }
@@ -740,14 +758,21 @@ void loop() {
     }
   }
 
-  // Push-to-talk (v1.3): hold BtnA to record, release to speak the answer.
+  // Push-to-talk: hold BtnA to record; release OR a trailing pause (v1.4 VAD)
+  // ends capture and speaks the answer.
   if (M5.BtnA.isPressed()) {
     g_stamps = pyramid::VoiceStamps{};  // re-arm latency tracking for this turn
     g_voiceActive = true;
     g_stamps.pressMs = millis();  // t0: button pressed
-    recordWhileHeld();            // captures into g_pcm, returns on release
-    g_stamps.recEndMs = millis();  // button released (end of speech)
+    recordWhileHeld();            // captures into g_pcm; returns on release or pause
+    g_stamps.recEndMs = millis();  // end of speech (release or detected pause)
     voiceTurn();                   // ASR(g_pcm) → LLM → TTS → speaker
+    // VAD may have ended capture while the button is still held; drain the hold
+    // so we don't immediately start another recording.
+    while (M5.BtnA.isPressed()) {
+      M5.update();
+      delay(5);
+    }
   }
 
   delay(5);

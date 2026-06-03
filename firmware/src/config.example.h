@@ -100,3 +100,14 @@
 #define REC_MIN_MS         300    // ignore recordings shorter than this
 #define REC_MIN_PEAK       500    // ignore recordings quieter than this (|sample|)
 #define ASR_MIN_CONFIDENCE 0.30f  // below this, re-prompt instead of calling the LLM
+
+// --- End-of-utterance / VAD (v1.4) -----------------------------------------
+// Pause-based end-of-utterance so you need not time the button: hold and speak,
+// and capture stops on a natural trailing pause (button release still ends it
+// immediately). Tuned per chunk of captured audio (see vad.h / recordWhileHeld).
+#define VAD_SILENCE_PEAK   500    // chunk peak below this counts as silence (|sample|)
+#define VAD_HANGOVER_MS    800    // trailing silence after speech that ends capture
+// recog_patience: hard cap on a single listen window. Bounded in practice by the
+// REC_MAX_MS RAM buffer (~5 s); raise REC_MAX_MS to let a larger value take hold.
+// In v2 this moves into the server-side Role (Role.recog_patience).
+#define RECOG_PATIENCE_MS  5000
