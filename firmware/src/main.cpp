@@ -320,9 +320,8 @@ bool ttsFetch(const std::string& text, std::string& err) {
 // `transcript` + returns true on a non-empty result; false + readable `err`
 // otherwise (the caller re-prompts on empty/error — PYR-013). `confidence` is
 // 0..1 on success. Network read; verified on hardware.
-[[maybe_unused]] bool asrTranscribe(const int16_t* pcm, size_t samples,
-                                    std::string& transcript, float& confidence,
-                                    std::string& err) {
+bool asrTranscribe(const int16_t* pcm, size_t samples, std::string& transcript,
+                   float& confidence, std::string& err) {
   if (samples == 0) {
     err = "asr: no audio";
     return false;
@@ -524,6 +523,73 @@ Attempt llmTurn(const std::vector<pyramid::Turn>& turns) {
   return a;
 }
 
+// One chat turn from a user utterance (typed or transcribed): run it through the
+// LLM (with history) and speak the reply via TTS. Shared by the serial text path
+// and the voice path so there is a single LLM→TTS chain. The full text reply is
+// always on serial; a TTS failure degrades to that text.
+void handleTurn(const std::string& userText) {
+  logf("text_in: \"%s\"", userText.c_str());
+  if (g_offline) {
+    Serial.println("offline: input paused (reconnecting)");
+    return;
+  }
+  logf("thinking...");
+  showStatus("thinking");
+
+  // Build the request from history + the pending user turn; commit to history
+  // only on success so a failed call can't poison the context.
+  std::vector<pyramid::Turn> req = g_history.turns();
+  req.push_back(pyramid::Turn{"user", userText});
+
+  const uint32_t turnStart = millis();
+  const Attempt a = llmTurn(req);  // reply streams to serial inside
+  const uint32_t allMs = millis() - turnStart;
+
+  if (a.ok) {
+    Serial.printf(
+        "[stats] first_token=%lu ms  total=%lu ms  tokens: in=%d out=%d total=%d\n",
+        static_cast<unsigned long>(a.firstMs), static_cast<unsigned long>(allMs),
+        a.usage.inputTokens, a.usage.outputTokens, a.usage.total());
+    g_history.addUser(userText);
+    g_history.addAssistant(a.reply);
+    showStatus("speaking");
+    std::string terr;
+    if (ttsFetch(a.reply, terr)) {
+      playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
+    } else {
+      logf("tts failed (%s) — reply shown as text only", terr.c_str());
+      showStatus("idle");
+    }
+  } else {
+    Serial.print("error: ");
+    Serial.println(a.err.c_str());
+    Serial.printf("[stats] failed after %lu ms\n",
+                  static_cast<unsigned long>(allMs));
+    showStatus("error");
+  }
+}
+
+// Voice turn (v1.3): transcribe the just-recorded audio (g_pcm) via ASR, then
+// run the same handleTurn() chain. asrTranscribe reads g_pcm before ttsFetch (in
+// handleTurn) overwrites it with the reply audio, so the shared buffer is safe.
+void voiceTurn() {
+  if (g_pcmLen == 0) return;
+  if (g_offline) {
+    Serial.println("offline: input paused (reconnecting)");
+    showStatus("idle");
+    return;
+  }
+  showStatus("thinking");  // transcribing
+  std::string transcript, err;
+  float confidence = 0.0f;
+  if (!asrTranscribe(g_pcm, g_pcmLen, transcript, confidence, err)) {
+    logf("asr: %s", err.c_str());  // PYR-013 turns this into a re-prompt
+    showStatus("idle");
+    return;
+  }
+  handleTurn(transcript);
+}
+
 }  // namespace
 
 void setup() {
@@ -561,59 +627,15 @@ void loop() {
     if (g_reader.feed(c, line)) {
       pyramid::TextIn ev;
       if (pyramid::parseTextIn(line, ev)) {
-        logf("text_in: \"%s\"", ev.text.c_str());
-        if (g_offline) {
-          Serial.println("offline: input paused (reconnecting)");
-          continue;
-        }
-        logf("thinking...");
-        showStatus("thinking");
-
-        // Build the request from history + the pending user turn; commit to
-        // history only on success so a failed call can't poison the context.
-        std::vector<pyramid::Turn> req = g_history.turns();
-        req.push_back(pyramid::Turn{"user", ev.text});
-
-        const uint32_t turnStart = millis();
-        const Attempt a = llmTurn(req);  // reply streams to serial inside
-        const uint32_t allMs = millis() - turnStart;
-
-        if (a.ok) {
-          // Per-turn stats: first_token = time until the first streamed token;
-          // total = whole turn incl. any retries; tokens from the API usage.
-          Serial.printf(
-              "[stats] first_token=%lu ms  total=%lu ms  tokens: in=%d out=%d total=%d\n",
-              static_cast<unsigned long>(a.firstMs),
-              static_cast<unsigned long>(allMs), a.usage.inputTokens,
-              a.usage.outputTokens, a.usage.total());
-          g_history.addUser(ev.text);
-          g_history.addAssistant(a.reply);
-          // v1.2: speak the reply through the Echo Base (the text is already on
-          // serial for debugging). TTS failure degrades to the logged text.
-          showStatus("speaking");
-          std::string terr;
-          if (ttsFetch(a.reply, terr)) {
-            playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
-          } else {
-            // Spoken-or-logged fallback: the reply is already on serial.
-            logf("tts failed (%s) — reply shown as text only", terr.c_str());
-            showStatus("idle");
-          }
-        } else {
-          Serial.print("error: ");
-          Serial.println(a.err.c_str());
-          Serial.printf("[stats] failed after %lu ms\n",
-                        static_cast<unsigned long>(allMs));
-          showStatus("error");
-        }
+        handleTurn(ev.text);  // serial text_in → LLM → TTS → speaker
       }
     }
   }
 
-  // Push-to-talk: hold BtnA to record from the mic, release to hear it back.
+  // Push-to-talk (v1.3): hold BtnA to record, release to speak the answer.
   if (M5.BtnA.isPressed()) {
-    recordWhileHeld();   // returns on release
-    playbackCaptured();  // play the captured buffer through the speaker
+    recordWhileHeld();  // captures into g_pcm, returns on release
+    voiceTurn();        // ASR(g_pcm) → LLM → TTS → speaker
   }
 
   delay(5);
