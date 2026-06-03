@@ -527,7 +527,16 @@ void loop() {
               a.usage.outputTokens, a.usage.total());
           g_history.addUser(ev.text);
           g_history.addAssistant(a.reply);
-          showStatus("idle");
+          // v1.2: speak the reply through the Echo Base (the text is already on
+          // serial for debugging). TTS failure degrades to the logged text.
+          showStatus("speaking");
+          std::string terr;
+          if (ttsFetch(a.reply, terr)) {
+            playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
+          } else {
+            logf("tts skipped: %s", terr.c_str());
+            showStatus("idle");
+          }
         } else {
           Serial.print("error: ");
           Serial.println(a.err.c_str());
