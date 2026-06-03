@@ -39,8 +39,9 @@
 // this config, not hardcoded in logic (config is the source of truth). In
 // v2+ this moves server-side into the Role.
 #define LLM_PERSONA \
-  "Ти — дружній голосовий помічник на ім'я Піраміда. " \
-  "Відповідай українською мовою, коротко, тепло і по суті."
+  "Ти — Піраміда, дружній голосовий помічник. " \
+  "Відповідай українською одним коротким реченням (до ~14 слів), " \
+  "без емодзі, списків і розмітки."
 
 // --- Conversation history (v0.3) --------------------------------------------
 // How many past turns (user/assistant messages) to keep in RAM and resend with
@@ -53,9 +54,10 @@
 // format the cloud ASR/TTS expect from v1.2+.
 #define AUDIO_SAMPLE_RATE 16000
 
-// Fixed maximum push-to-talk record duration (ms). Caps the RAM buffer:
-// AUDIO_SAMPLE_RATE * REC_MAX_MS/1000 samples * 2 bytes.
-#define REC_MAX_MS 4000
+// Fixed maximum audio duration (ms) for both push-to-talk capture and buffered
+// TTS playback. Caps the RAM buffer: AUDIO_SAMPLE_RATE * REC_MAX_MS/1000
+// samples * 2 bytes (5 s ≈ 160 KB). Keep small — SRAM is shared with Wi-Fi/TLS.
+#define REC_MAX_MS 5000
 
 // Speaker volume for playback (0–255).
 #define SPK_VOLUME 200
@@ -73,7 +75,8 @@
 #define TTS_MODEL         "eleven_multilingual_v2"
 #define TTS_SAMPLE_RATE   AUDIO_SAMPLE_RATE         // 16 kHz; matches playback
 
-// Max reply length (UTF-8 bytes, boundary-safe) sent to TTS, so a long reply
-// fits the playback buffer and stays cheap. Over-long replies are truncated
-// (v0.3 keeps the full text on serial). ~4 s of speech fits the v1.1 buffer.
-#define TTS_MAX_CHARS     280
+// Max reply length (UTF-8 bytes, boundary-safe) sent to TTS. Playback is
+// buffered into the REC_MAX_MS buffer (~5 s), so keep this within ~that much
+// speech (~30 bytes/s of Ukrainian) or the audio is cut at the buffer; the full
+// reply always stays on serial. The terse persona keeps replies well under this.
+#define TTS_MAX_CHARS     200
