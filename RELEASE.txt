@@ -1,6 +1,24 @@
 Pyramid -- Release Notes
 ========================
 
+Version 1.2.0 (2026-06-03)
+--------------------------
+v1.2 milestone -- Voice, phase 2: TTS output (spoken replies). Type over USB
+serial and hear Claude's Ukrainian reply spoken through the Atomic Echo Base.
+v1 still in progress -- v1.3 (ASR) and v1.4 (states/UX) remain.
+
+- PYR-008 Cloud TTS client: ElevenLabs text-to-speech over HTTPS,
+  output_format=pcm_16000 (raw 16 kHz mono PCM16, no on-device decode), Ukrainian
+  via eleven_multilingual_v2. Pure, host-tested request builder.
+- PYR-009 TTS -> playback pipeline: after the LLM reply, the text is sent to TTS
+  and played through the Echo Base speaker using the v1.1 playback path; the
+  reply text stays on serial for debugging.
+- PYR-010 TTS robustness: UTF-8 boundary-safe length cap (TTS_MAX_CHARS), bounded
+  timeout, and a spoken-or-logged fallback so a TTS hiccup never hangs the loop.
+- Buffered playback with a terse persona keeps replies smooth and complete
+  (verified on hardware). Gapless streaming of long replies is deferred to v1.4
+  (needs a background audio task).
+
 Version 1.1.0 (2026-06-03)
 --------------------------
 v1.1 milestone -- Voice, phase 1: Audio I/O and the PlatformIO migration.

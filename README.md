@@ -1,6 +1,6 @@
 # Pyramid
 
-**Version 1.1.0** · A closed, private voice AI assistant on M5Stack hardware.
+**Version 1.2.0** · A closed, private voice AI assistant on M5Stack hardware.
 
 Pyramid is a self-tailored analog of [xiaozhi](https://github.com/78/xiaozhi-esp32):
 a living, configurable persona that runs on an **AtomS3R + Echo Base**, speaks
@@ -36,7 +36,7 @@ Complexity is added **only by version** — each ships standalone, built in orde
 | Version | Theme | Status |
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, text over USB-CDC | **complete** (v0.1–v0.3) |
-| **v1** | Voice — I2S audio, push-to-talk; TTS first, then ASR; PlatformIO | **in progress** (v1.1 done; v1.2–v1.4 planned) |
+| **v1** | Voice — I2S audio, push-to-talk; TTS first, then ASR; PlatformIO | **in progress** (v1.1–v1.2 done; v1.3–v1.4 planned) |
 | **v2** | Server with role config — own backend (WSS/FastAPI), console, accounts, activation | planned |
 | **v3** | Memory, horoscope-temperament, MCP layer | planned |
 
@@ -48,15 +48,15 @@ specification/   # MISSION.md, ARCHITECTURE.md, ROADMAP.md + roadmap/implementat
                  # server/, mcp/, console/, tests/ are created as each version starts
 ```
 
-## Current state (v1.1 — audio I/O)
+## Current state (v1.2 — spoken replies)
 
-A full **text chat** in Ukrainian works over USB serial (v0): typed line →
-Claude over direct HTTPS (streamed reply) with rolling history, bounded retry,
-Wi-Fi auto-reconnect, and LCD states. On top of that, **v1.1** migrated the
-firmware to **PlatformIO** (with `pio test -e native` host tests) and brought up
-**audio I/O** on the Atomic Echo Base: hold the button to record, release to
-hear it played back — the push-to-talk record→playback loop, verified on
-hardware. Next: **v1.2 — spoken replies** (cloud TTS into this playback path).
+Type a line over USB serial and **hear Claude's Ukrainian reply spoken** through
+the Atomic Echo Base. The path: serial `text_in` → Claude over direct HTTPS
+(streamed, with rolling history, retry, Wi-Fi recovery) → ElevenLabs TTS
+(`pcm_16000`) → I2S playback. Built on **v1.1** (PlatformIO + `pio test -e native`
+host tests, and push-to-talk record→playback audio on the ES8311 Echo Base).
+Replies are buffered for smooth, complete playback. Next: **v1.3 — ASR** (speak →
+transcribe → the same LLM→TTS chain).
 
 Build and flash instructions are in [firmware/README.md](firmware/README.md).
 Quick host test of the pure serial logic:
