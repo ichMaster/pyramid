@@ -1,6 +1,20 @@
 Pyramid -- Release Notes
 ========================
 
+Version 0.3.1 (2026-06-03)
+--------------------------
+Streaming refinement of the v0 text chat. The device now streams Claude's
+reply token by token and reports per-turn latency and token usage.
+
+- Streaming LLM replies (SSE): the request sets stream:true and the reply is
+  printed to serial token by token as it arrives, via a pure, host-tested
+  decode pipeline (sse.h: HTTP chunked-transfer decode -> data: line
+  extraction -> event parsing). The on-device TLS socket read is covered by
+  compile + the manual on-hardware check.
+- Per-turn stats line after each reply: first_token (genuine
+  time-to-first-token), total (whole turn incl. any retries), and token
+  counts (in / out / total) from the API usage.
+
 Version 0.3.0 (2026-06-03)
 --------------------------
 v0 (Text chat over serial) is COMPLETE -- a typed line over USB serial gets a
