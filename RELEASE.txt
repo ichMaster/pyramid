@@ -1,6 +1,27 @@
 Pyramid -- Release Notes
 ========================
 
+Version 1.3.0 (2026-06-03)
+--------------------------
+v1.3 milestone -- Voice, phase 3: ASR + the full voice loop. Hold the button,
+speak Ukrainian, and hear Piramida's spoken reply: mic -> Deepgram ASR ->
+Claude -> ElevenLabs TTS -> Echo Base speaker, end to end. Direct-to-cloud;
+serial remains a debug channel. v1.4 (states/UX) remains.
+
+- PYR-011 Cloud ASR client: Deepgram prerecorded transcription over HTTPS,
+  captured PCM16 -> Ukrainian transcript (model nova-2, language uk). Pure,
+  host-tested response parser (asr_api.h).
+- PYR-012 Full voice loop: push-to-talk records the mic, transcribes it, runs
+  the shared LLM->TTS turn, and plays the reply -- the complete button -> ASR
+  -> LLM -> TTS -> speaker path on the device.
+- PYR-013 ASR robustness + latency: noise gate (min duration/peak) skips silence
+  and accidental taps; low-confidence transcripts re-prompt instead of answering
+  noise; bounded retry on transient ASR errors. In-place G.711 mu-law encoding
+  halves the upload (fixes Deepgram 408 SLOW_UPLOAD); turbo TTS model trims
+  latency. Pure, host-tested mu-law encoder (ulaw.h) + audio gate (audio.h).
+- Default persona = Piramida for v1 (terse Ukrainian helper). The richer Lili
+  Name+Canon stays in the spec for the v2 server-side Role.
+
 Version 1.2.0 (2026-06-03)
 --------------------------
 v1.2 milestone -- Voice, phase 2: TTS output (spoken replies). Type over USB
