@@ -39,6 +39,7 @@
 #include "serial_protocol.h"
 #include "sse.h"
 #include "tts_api.h"
+#include "ulaw.h"
 
 namespace {
 
@@ -51,6 +52,7 @@ constexpr uint32_t kAsrReadMs = 15000;  // ASR read budget (v1.3)
 
 // Bounded retry for transient LLM failures (transport / 429 / 5xx).
 constexpr int kMaxRetries = 2;
+constexpr int kAsrMaxRetries = 2;  // transient ASR (408 SLOW_UPLOAD / 5xx) retries
 constexpr uint32_t kRetryBaseMs = 500;
 constexpr uint32_t kRetryCapMs = 4000;
 
@@ -315,53 +317,71 @@ bool ttsFetch(const std::string& text, std::string& err) {
   return true;
 }
 
-// ASR (v1.3): transcribe captured PCM16 (`g_pcm`-style buffer) via Deepgram.
-// POSTs the raw bytes (linear16, no multipart) and parses the transcript. Sets
-// `transcript` + returns true on a non-empty result; false + readable `err`
-// otherwise (the caller re-prompts on empty/error — PYR-013). `confidence` is
-// 0..1 on success. Network read; verified on hardware.
-bool asrTranscribe(const int16_t* pcm, size_t samples, std::string& transcript,
+// ASR (v1.3): transcribe captured PCM16 via Deepgram. The buffer is encoded to
+// 8-bit µ-law IN PLACE (halves the upload → fixes 408 SLOW_UPLOAD), POSTed as
+// `encoding=mulaw`, with a bounded retry on transient errors (408/429/5xx/
+// transport). Sets `transcript` + returns true on a non-empty result; false +
+// readable `err` otherwise (the caller re-prompts — PYR-013). `pcm` is mutated
+// (encoded in place); the recording isn't needed afterward. Verified on hardware.
+bool asrTranscribe(int16_t* pcm, size_t samples, std::string& transcript,
                    float& confidence, std::string& err) {
   if (samples == 0) {
     err = "asr: no audio";
     return false;
   }
-  WiFiClientSecure client;
-  client.setInsecure();  // v0: no cert pinning under the private allowlist model
+  // PCM16 -> µ-law in place: byte i overwrites a byte of an already-encoded
+  // earlier sample, while sample i (bytes 2i,2i+1) is still intact when read.
+  uint8_t* const mulaw = reinterpret_cast<uint8_t*>(pcm);
+  for (size_t i = 0; i < samples; ++i) mulaw[i] = pyramid::ulawEncode(pcm[i]);
+  const size_t nbytes = samples;  // 1 byte/sample
 
-  HTTPClient http;
-  http.setConnectTimeout(kHttpConnectMs);
-  http.setTimeout(kAsrReadMs);
   const String url = String(ASR_ENDPOINT) + "?model=" + ASR_MODEL +
                      "&language=" + ASR_LANG +
-                     "&encoding=linear16&sample_rate=" + String(ASR_SAMPLE_RATE);
-  if (!http.begin(client, url)) {
-    err = "asr: http begin failed";
-    return false;
-  }
-  http.addHeader("Authorization", String("Token ") + ASR_API_KEY);
-  http.addHeader("Content-Type", "application/octet-stream");
+                     "&encoding=mulaw&sample_rate=" + String(ASR_SAMPLE_RATE);
 
-  const int status = http.POST(
-      reinterpret_cast<uint8_t*>(const_cast<int16_t*>(pcm)),
-      samples * sizeof(int16_t));
-  if (status != 200) {
+  for (int attempt = 0; attempt <= kAsrMaxRetries; ++attempt) {
+    if (attempt > 0) {
+      const uint32_t wait =
+          pyramid::backoffDelayMs(attempt - 1, kRetryBaseMs, kRetryCapMs);
+      logf("asr: retry %d/%d in %u ms (%s)", attempt, kAsrMaxRetries,
+           static_cast<unsigned>(wait), err.c_str());
+      delay(wait);
+    }
+    WiFiClientSecure client;
+    client.setInsecure();  // v0: no cert pinning under the private allowlist model
+    HTTPClient http;
+    http.setConnectTimeout(kHttpConnectMs);
+    http.setTimeout(kAsrReadMs);
+    if (!http.begin(client, url)) {
+      err = "asr: http begin failed";
+      return false;
+    }
+    http.addHeader("Authorization", String("Token ") + ASR_API_KEY);
+    http.addHeader("Content-Type", "application/octet-stream");
+
+    const int status = http.POST(mulaw, nbytes);
+    if (status == 200) {
+      const String payload = http.getString();
+      http.end();
+      const bool ok =
+          pyramid::parseAsrTranscript(payload.c_str(), transcript, confidence, err);
+      if (ok) {
+        logf("asr: \"%s\" (conf %d%%)", transcript.c_str(),
+             static_cast<int>(confidence * 100));
+      }
+      return ok;  // a parsed 200 (incl. empty -> false) is not retried
+    }
+
     const String payload = http.getString();
     err = "asr: http " + std::to_string(status);
     if (payload.length()) err += ": " + std::string(payload.c_str()).substr(0, 120);
     http.end();
-    return false;
+    // Retry only transient failures (slow upload / rate-limit / server / transport).
+    const bool retryable =
+        (status == 408 || status == 429 || status >= 500 || status <= 0);
+    if (!retryable) return false;
   }
-  const String payload = http.getString();
-  http.end();
-
-  const bool ok = pyramid::parseAsrTranscript(payload.c_str(), transcript,
-                                              confidence, err);
-  if (ok) {
-    logf("asr: \"%s\" (conf %d%%)", transcript.c_str(),
-         static_cast<int>(confidence * 100));
-  }
-  return ok;
+  return false;  // retries exhausted; err holds the last failure
 }
 
 // Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
@@ -606,13 +626,7 @@ void voiceTurn() {
   std::string transcript, err;
   float confidence = 0.0f;
   if (!asrTranscribe(g_pcm, g_pcmLen, transcript, confidence, err)) {
-    // Empty recognition → re-prompt; a hard error (http/timeout) just logs.
-    if (err.find("empty") != std::string::npos) {
-      rePrompt("empty transcript");
-    } else {
-      logf("asr: %s", err.c_str());
-      showStatus("error");
-    }
+    rePrompt(err.c_str());  // empty / 408 after retries / timeout → spoken nudge
     return;
   }
   if (confidence < ASR_MIN_CONFIDENCE) {

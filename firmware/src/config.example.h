@@ -39,7 +39,7 @@
 // this config, not hardcoded in logic (config is the source of truth). In
 // v2+ this moves server-side into the Role.
 #define LLM_PERSONA \
-  "Ти — Піраміда, дружній голосовий помічник. " \
+  "Тебе звати Піраміда; ти дружній голосовий помічник. " \
   "Відповідай українською одним коротким реченням (до ~14 слів), " \
   "без емодзі, списків і розмітки."
 
@@ -72,7 +72,9 @@
 #define TTS_ENDPOINT_BASE "https://api.elevenlabs.io/v1/text-to-speech/"
 #define TTS_API_KEY       "xi-replace-me"          // sent as the xi-api-key header
 #define TTS_VOICE_ID      "replace-with-voice-id"  // an ElevenLabs voice id
-#define TTS_MODEL         "eleven_multilingual_v2"
+// Low-latency model for snappy replies (eleven_turbo_v2_5 / eleven_flash_v2_5);
+// eleven_multilingual_v2 is higher quality but slower. All speak Ukrainian.
+#define TTS_MODEL         "eleven_turbo_v2_5"
 #define TTS_SAMPLE_RATE   AUDIO_SAMPLE_RATE         // 16 kHz; matches playback
 
 // Max reply length (UTF-8 bytes, boundary-safe) sent to TTS. Playback is
@@ -82,9 +84,10 @@
 #define TTS_MAX_CHARS     200
 
 // --- ASR (v1.3): Deepgram --------------------------------------------------
-// Speech-to-text. Deepgram prerecorded accepts raw 16 kHz mono PCM16 (no
-// multipart/WAV): POST the captured g_pcm bytes to
-//   {ASR_ENDPOINT}?model={ASR_MODEL}&language={ASR_LANG}&encoding=linear16&sample_rate={rate}
+// Speech-to-text. Deepgram prerecorded; the firmware encodes the captured audio
+// to 8-bit µ-law in place and POSTs it (halves the upload → avoids 408
+// SLOW_UPLOAD) to
+//   {ASR_ENDPOINT}?model={ASR_MODEL}&language={ASR_LANG}&encoding=mulaw&sample_rate={rate}
 // with header `Authorization: Token <key>`. Get a key at console.deepgram.com.
 #define ASR_ENDPOINT     "https://api.deepgram.com/v1/listen"
 #define ASR_API_KEY      "dg-replace-me"   // Authorization: Token <key>
