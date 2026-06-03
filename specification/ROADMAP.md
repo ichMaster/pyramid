@@ -133,11 +133,13 @@ A FastAPI + websockets server terminates a single duplex WSS channel and runs th
 **Tasks:**
 - Stand up a **WSS** server (FastAPI + `websockets`), TLS-terminated.
 - Implement the device↔server contract: device→ `hello`, `listen_start`, `audio`(bin), `listen_stop`, `text_in`; server→ `asr`/`asr_partial`, `reply`, `text_out`, `tts_audio`(bin), `tts_end`, `error`, `config_updated`, `restart` (see ARCHITECTURE §WS device↔server).
-- Move the **ASR→LLM→TTS** orchestration server-side; stream per stage (clause-boundary TTS).
-- Convert the firmware into a WSS client that streams mic audio and plays returned TTS; serial bridges as a local debug client.
+- Move the **ASR→LLM→TTS** orchestration server-side; stream per stage.
+- **Sentence-streaming TTS** (carried over from the v1.3 latency analysis, rec. #3): synthesize speech clause/sentence by sentence as the LLM streams tokens, instead of waiting for the full reply, so the first `tts_audio` chunk leaves the server while the model is still generating. This overlaps the TTS stage (~20 % of post-speech latency in v1.3) with LLM generation; it lives on the server because the v1.2 device-side attempt was choppy under single-thread TLS+audio contention.
+- **Early/streaming playback** (carried over, rec. #4): the firmware plays each `tts_audio` chunk as it arrives over WSS (paced by the server) rather than buffering the whole reply — so audio starts on the first chunk. The server paces the stream, sidestepping the on-device underrun that forced buffered playback in v1.2.
+- Convert the firmware into a WSS client that streams mic audio and plays returned TTS chunk-by-chunk; serial bridges as a local debug client.
 - Add per-stage timeouts and the enumerated `error.code` set.
 
-**DoD:** the device runs end-to-end through our server, with the same voice experience as v1.
+**DoD:** the device runs end-to-end through our server, with the same voice experience as v1 and a lower time-to-first-audio — playback starts on the first streamed TTS chunk rather than after the full reply is synthesized.
 
 ### v2.2 — Role, Name & Canon
 
