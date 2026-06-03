@@ -2,11 +2,10 @@
 
 **Uploaded:** 2026-06-03
 **Repository:** https://github.com/ichMaster/pyramid
-**Scope:** phases **v1.1** (Audio I/O + PlatformIO) and **v1.2** (TTS output)
-**Total issues:** 7
+**Scope:** phases **v1.1** (Audio I/O + PlatformIO), **v1.2** (TTS output), **v1.3** (ASR / full voice loop)
+**Total issues:** 10
 
-> v1.3 (ASR) and v1.4 (states/UX) are not yet broken into issues; append their
-> rows here when uploaded.
+> v1.4 (states/UX) is not yet broken into issues; append its rows here when uploaded.
 
 ## Issue Mapping
 
@@ -19,6 +18,9 @@
 | PYR-008 | #8 | Cloud TTS client (Ukrainian → PCM16) | v1.2 | v1::version:1, v1::size:M, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/8 |
 | PYR-009 | #9 | TTS → playback pipeline (serial → LLM → TTS → speaker) | v1.2 | v1::version:1, v1::size:M, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/9 |
 | PYR-010 | #10 | TTS robustness (timeout / fallback / max length) | v1.2 | v1::version:1, v1::size:S, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/10 |
+| PYR-011 | #11 | Cloud ASR client (Ukrainian PCM16 → transcript) | v1.3 | v1::version:1, v1::size:M, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/11 |
+| PYR-012 | #12 | Full voice loop (button → ASR → LLM → TTS → speaker) | v1.3 | v1::version:1, v1::size:M, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/12 |
+| PYR-013 | #13 | ASR robustness (empty/failed recognition, timeout, noise gate) | v1.3 | v1::version:1, v1::size:S, v1::area:firmware | https://github.com/ichMaster/pyramid/issues/13 |
 
 ## Dependencies
 
@@ -34,6 +36,12 @@ PYR-004 gates v1.1; after it, PYR-005 and PYR-006 run in parallel, and PYR-006 +
 - #10 (PYR-010) blocked by #9 (PYR-009)
 
 v1.2 is a chain (client → pipeline → robustness); the DoD (typed prompt → spoken Ukrainian reply) is met at PYR-009.
+
+**v1.3**
+- #12 (PYR-012) blocked by #11 (PYR-011)
+- #13 (PYR-013) blocked by #12 (PYR-012)
+
+v1.3 is a chain (ASR client → voice loop → robustness); the DoD (speak → hear a Ukrainian reply) is met at PYR-012. Provider decided: Deepgram (raw PCM16).
 
 ## Labels Created
 
