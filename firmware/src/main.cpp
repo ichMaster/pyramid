@@ -210,11 +210,20 @@ void playbackCaptured() {
 // play it. Returns true on success; false + a readable `err` otherwise. The
 // audio is bounded by the g_pcm buffer (PYR-010 caps the text via
 // TTS_MAX_CHARS so a reply fits). Network read; verified on hardware.
-[[maybe_unused]] bool ttsFetch(const std::string& text, std::string& err) {
+bool ttsFetch(const std::string& text, std::string& err) {
   if (text.empty()) {
     err = "tts: empty text";
     return false;
   }
+  // Bound the reply sent to TTS (UTF-8 boundary-safe) so it fits the buffer and
+  // stays cheap; the full text is already on serial regardless.
+  const std::string spoken = pyramid::clampUtf8(text, TTS_MAX_CHARS);
+  if (spoken.size() < text.size()) {
+    logf("tts: reply truncated %u -> %u bytes (TTS_MAX_CHARS=%d)",
+         static_cast<unsigned>(text.size()), static_cast<unsigned>(spoken.size()),
+         static_cast<int>(TTS_MAX_CHARS));
+  }
+
   WiFiClientSecure client;
   client.setInsecure();  // v0: no cert pinning under the private allowlist model
 
@@ -231,7 +240,7 @@ void playbackCaptured() {
   http.addHeader("content-type", "application/json");
   http.addHeader("accept", "audio/pcm");
 
-  const std::string body = pyramid::buildTtsRequest(TTS_MODEL, text);
+  const std::string body = pyramid::buildTtsRequest(TTS_MODEL, spoken);
   const int status = http.POST(String(body.c_str()));
   if (status != 200) {
     const String payload = http.getString();  // error body is small text/JSON
@@ -534,7 +543,8 @@ void loop() {
           if (ttsFetch(a.reply, terr)) {
             playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
           } else {
-            logf("tts skipped: %s", terr.c_str());
+            // Spoken-or-logged fallback: the reply is already on serial.
+            logf("tts failed (%s) — reply shown as text only", terr.c_str());
             showStatus("idle");
           }
         } else {
