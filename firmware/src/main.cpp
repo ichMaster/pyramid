@@ -67,11 +67,6 @@ constexpr uint32_t kWifiBackoffCapMs = 8000;
 // (v1.4 resilience). The loop never gets stuck on Error.
 constexpr uint32_t kErrorDwellMs = 2000;
 
-// Max time asrTranscribe waits for an in-flight pre-warm handshake to finish
-// before using the connection (> the 8 s handshake timeout, so it never trips
-// in practice; a guard against touching the client while the task still holds it).
-constexpr uint32_t kAsrWarmWaitMs = 10000;
-
 pyramid::LineReader g_reader;
 pyramid::History g_history(HISTORY_MAX_TURNS);
 
@@ -92,18 +87,6 @@ size_t g_pcmLen = 0;  // valid samples captured in the last push-to-talk
 // path so the serial text path doesn't emit (or pollute) a latency line.
 pyramid::VoiceStamps g_stamps;
 bool g_voiceActive = false;
-
-// ASR connection pre-warm (v1.4, PYR-017). The TLS handshake to the ASR host is
-// the bulk of the ~3 s fixed ASR overhead (v1.3 latency analysis). We open it on
-// a background task pinned to the other core when capture STARTS, so the
-// handshake overlaps the user's speech; asrTranscribe then reuses this same
-// client for the POST (HTTPClient reuse), or connects fresh if it isn't ready.
-// One persistent client + waiting on g_asrWarming before use => never two
-// concurrent handshakes.
-WiFiClientSecure g_asrClient;
-volatile bool g_asrWarming = false;  // background handshake in flight
-volatile bool g_asrWarm = false;     // handshake finished (check connected() to use)
-std::string g_asrHost;               // host parsed from ASR_ENDPOINT (set in setup)
 
 // All status logging routes through here and is gated by DEBUG_SERIAL, so the
 // device can be quietened later without touching call sites.
@@ -184,36 +167,6 @@ void failTurn(const char* what) {
   }
 }
 
-// Background TLS handshake to the ASR host (v1.4 pre-warm). Runs on the other
-// core while the user is still speaking; sets g_asrWarm when done. A bounded
-// handshake timeout keeps the task from wedging.
-void asrPrewarmTask(void*) {
-  g_asrClient.setInsecure();  // v0: no cert pinning under the private allowlist model
-  g_asrClient.setHandshakeTimeout(8);  // seconds; bound the blocking connect
-  const bool ok = g_asrClient.connect(g_asrHost.c_str(), 443);
-  g_asrWarm = ok;
-  g_asrWarming = false;
-  vTaskDelete(nullptr);
-}
-
-// Kick off the pre-warm if it isn't already warm/warming and we're online.
-// Called when capture starts so the handshake overlaps speech.
-void startAsrPrewarm() {
-  if (g_asrWarming || g_asrWarm) return;
-  if (WiFi.status() != WL_CONNECTED || g_asrHost.empty()) return;
-  if (g_asrClient.connected()) {  // already open from a prior turn
-    g_asrWarm = true;
-    return;
-  }
-  g_asrWarming = true;
-  // Pin to core 0 (PRO_CPU); the Arduino loop runs on core 1. 16 KB stack for
-  // the mbedTLS handshake.
-  if (xTaskCreatePinnedToCore(asrPrewarmTask, "asr_warm", 16384, nullptr, 1,
-                              nullptr, 0) != pdPASS) {
-    g_asrWarming = false;  // couldn't spawn; asrTranscribe just connects fresh
-  }
-}
-
 bool connectWiFi() {
   logf("wifi: connecting to \"%s\"", WIFI_SSID);
   setState(pyramid::TurnState::Offline);  // not connected yet — input paused
@@ -272,9 +225,6 @@ void serviceWiFi() {
 void recordWhileHeld() {
   applyEvent(pyramid::TurnEvent::Listen);  // -> Listening
   logf("rec: start");
-  // Pre-warm the ASR TLS connection now (v1.4) so its handshake overlaps the
-  // speech we're about to capture, instead of stalling the turn after release.
-  startAsrPrewarm();
   // Make sure we own the shared ES8311 / I2S bus in mic mode — defensive in case
   // a prior turn aborted mid-switch (v1.4 resilience).
   ensureMicMode();
@@ -488,20 +438,6 @@ bool asrTranscribe(int16_t* pcm, size_t samples, std::string& transcript,
                      "&language=" + ASR_LANG +
                      "&encoding=mulaw&sample_rate=" + String(ASR_SAMPLE_RATE);
 
-  // Let any in-flight pre-warm (PYR-017) finish before we touch g_asrClient, so
-  // we reuse its handshake rather than racing it with a second connection.
-  const uint32_t warmWaitStart = millis();
-  while (g_asrWarming && millis() - warmWaitStart < kAsrWarmWaitMs) delay(5);
-  if (g_asrWarming) {  // task wedged (shouldn't happen — handshake is bounded)
-    err = "asr: prewarm stuck";
-    return false;  // do NOT touch g_asrClient while the task may still hold it
-  }
-  if (g_asrWarm && g_asrClient.connected()) {
-    logf("asr: reusing pre-warmed connection");
-  }
-  g_asrWarm = false;  // consume the flag; the socket itself may stay open (reuse)
-  g_asrClient.setInsecure();  // v0: no cert pinning under the private allowlist model
-
   for (int attempt = 0; attempt <= kAsrMaxRetries; ++attempt) {
     if (attempt > 0) {
       const uint32_t wait =
@@ -509,13 +445,13 @@ bool asrTranscribe(int16_t* pcm, size_t samples, std::string& transcript,
       logf("asr: retry %d/%d in %u ms (%s)", attempt, kAsrMaxRetries,
            static_cast<unsigned>(wait), err.c_str());
       delay(wait);
-      g_asrClient.stop();  // drop a possibly-bad socket; HTTPClient reconnects fresh
     }
+    WiFiClientSecure client;
+    client.setInsecure();  // v0: no cert pinning under the private allowlist model
     HTTPClient http;
-    http.setReuse(true);  // keep g_asrClient open so the pre-warmed socket is reused
     http.setConnectTimeout(kHttpConnectMs);
     http.setTimeout(kAsrReadMs);
-    if (!http.begin(g_asrClient, url)) {
+    if (!http.begin(client, url)) {
       err = "asr: http begin failed";
       return false;
     }
@@ -833,8 +769,6 @@ void setup() {
 
   Serial.println("Pyramid v1.4 -- states and UX");
   setState(pyramid::TurnState::Offline);  // boot: not connected yet
-
-  g_asrHost = pyramid::parseHost(ASR_ENDPOINT);  // for the ASR connection pre-warm
 
   connectWiFi();
 
