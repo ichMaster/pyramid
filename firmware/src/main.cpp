@@ -38,6 +38,7 @@
 #include "line_reader.h"
 #include "serial_protocol.h"
 #include "sse.h"
+#include "states.h"
 #include "timing.h"
 #include "tts_api.h"
 #include "ulaw.h"
@@ -95,17 +96,49 @@ void logf(const char* fmt, ...) {
   Serial.println(line);
 }
 
-// Coarse turn state on the LCD: idle / thinking / error / offline (the full
-// state machine lands in v1.4).
-void showStatus(const char* s) {
-  M5.Display.fillScreen(TFT_BLACK);
-  M5.Display.setCursor(0, 0);
-  M5.Display.print(s);
+// Turn-state machine (v1.4): one source of truth for what the device is doing.
+// The transition logic is pure + host-tested (states.h); here we hold the
+// current state, render it to the LCD (label + a glance-readable color), and
+// expose applyEvent() so every path updates state the same way. Starts Offline
+// (boot, before the first Wi-Fi connect).
+pyramid::TurnState g_state = pyramid::TurnState::Offline;
+
+// State -> LCD background color (firmware-only; the label lives in states.h).
+uint16_t stateColor(pyramid::TurnState s) {
+  switch (s) {
+    case pyramid::TurnState::Idle:
+      return TFT_BLACK;
+    case pyramid::TurnState::Listening:
+      return TFT_NAVY;     // capturing speech
+    case pyramid::TurnState::Thinking:
+      return TFT_OLIVE;    // processing (ASR/LLM/TTS)
+    case pyramid::TurnState::Replying:
+      return TFT_DARKGREEN;  // talking back
+    case pyramid::TurnState::Error:
+      return TFT_MAROON;   // a turn failed
+    case pyramid::TurnState::Offline:
+      return TFT_DARKGREY;  // Wi-Fi down / input paused
+  }
+  return TFT_BLACK;
 }
+
+void renderState() {
+  M5.Display.fillScreen(stateColor(g_state));
+  M5.Display.setCursor(0, 0);
+  M5.Display.print(pyramid::label(g_state));
+}
+
+void setState(pyramid::TurnState s) {
+  g_state = s;
+  renderState();
+}
+
+// Drive a transition through the pure state machine, then render it.
+void applyEvent(pyramid::TurnEvent e) { setState(pyramid::nextState(g_state, e)); }
 
 bool connectWiFi() {
   logf("wifi: connecting to \"%s\"", WIFI_SSID);
-  showStatus("wifi...");
+  setState(pyramid::TurnState::Offline);  // not connected yet — input paused
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -113,13 +146,13 @@ bool connectWiFi() {
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - start > kWifiTimeoutMs) {
       logf("wifi: connect timeout (will retry in loop)");
-      showStatus("offline");
+      setState(pyramid::TurnState::Offline);
       return false;
     }
     delay(250);
   }
   logf("wifi: connected, ip=%s", WiFi.localIP().toString().c_str());
-  showStatus("idle");
+  applyEvent(pyramid::TurnEvent::WifiUp);  // Offline -> Idle
   return true;
 }
 
@@ -131,7 +164,7 @@ void serviceWiFi() {
       g_offline = false;
       g_wifiAttempt = 0;
       logf("wifi: reconnected, ip=%s", WiFi.localIP().toString().c_str());
-      showStatus("idle");
+      applyEvent(pyramid::TurnEvent::WifiUp);  // Offline -> Idle
     }
     return;
   }
@@ -139,7 +172,7 @@ void serviceWiFi() {
   if (!g_offline) {
     g_offline = true;
     logf("wifi: connection lost — pausing input");
-    showStatus("offline");
+    applyEvent(pyramid::TurnEvent::WifiLost);  // -> Offline
   }
 
   const uint32_t now = millis();
@@ -159,7 +192,7 @@ void serviceWiFi() {
 // speaker share the I2S bus, so the speaker is released first. Mic bring-up
 // needs the board (manual DoD check); the sizing/level math is host-tested.
 void recordWhileHeld() {
-  showStatus("listening");
+  applyEvent(pyramid::TurnEvent::Listen);  // -> Listening
   logf("rec: start");
   // The device sits in mic mode (setup() and playbackCaptured() leave the mic
   // begun on the shared ES8311 / I2S). record() also auto-begins if needed.
@@ -183,7 +216,8 @@ void recordWhileHeld() {
   logf("rec: %u samples (%u ms) peak=%d clipped=%u", static_cast<unsigned>(g_pcmLen),
        static_cast<unsigned>(ms), static_cast<int>(st.peak),
        static_cast<unsigned>(st.clipped));
-  showStatus("idle");
+  // No state change here: voiceTurn() fires Think (transcribing) or Done (gated
+  // out) next, so we don't flash Idle between capture and processing.
 }
 
 // Playback (v1.1): play the just-captured PCM16 buffer through the Echo Base
@@ -195,7 +229,7 @@ void recordWhileHeld() {
 // cloud TTS through the same path.
 void playbackCaptured() {
   if (g_pcmLen == 0) return;
-  showStatus("playing");
+  applyEvent(pyramid::TurnEvent::Reply);  // -> Replying
   logf("play: %u samples", static_cast<unsigned>(g_pcmLen));
 
   while (M5.Mic.isRecording()) delay(1);  // let capture DMA finish first
@@ -203,7 +237,7 @@ void playbackCaptured() {
   if (!M5.Speaker.begin()) {
     logf("play: speaker begin failed");
     M5.Mic.begin();  // restore mic mode
-    showStatus("error");
+    applyEvent(pyramid::TurnEvent::Fail);  // -> Error
     return;
   }
   M5.Speaker.setVolume(SPK_VOLUME);
@@ -225,7 +259,7 @@ void playbackCaptured() {
   }
   M5.Speaker.end();  // hand the bus back
   M5.Mic.begin();    // return to mic mode for the next push-to-talk
-  showStatus("idle");
+  applyEvent(pyramid::TurnEvent::Done);  // -> Idle
 }
 
 // TTS (v1.2): fetch spoken audio for `text` from ElevenLabs into g_pcm as raw
@@ -573,7 +607,7 @@ void handleTurn(const std::string& userText) {
     return;
   }
   logf("thinking...");
-  showStatus("thinking");
+  applyEvent(pyramid::TurnEvent::Think);  // -> Thinking (ASR done; LLM + TTS fetch)
 
   // Build the request from history + the pending user turn; commit to history
   // only on success so a failed call can't poison the context.
@@ -592,7 +626,8 @@ void handleTurn(const std::string& userText) {
         a.usage.inputTokens, a.usage.outputTokens, a.usage.total());
     g_history.addUser(userText);
     g_history.addAssistant(a.reply);
-    showStatus("speaking");
+    // Still Thinking while we fetch the TTS audio; playbackCaptured() flips to
+    // Replying once it actually plays.
     std::string terr;
     const uint32_t ttsStart = millis();
     const bool spoke = ttsFetch(a.reply, terr);
@@ -601,14 +636,14 @@ void handleTurn(const std::string& userText) {
       playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
     } else {
       logf("tts failed (%s) — reply shown as text only", terr.c_str());
-      showStatus("idle");
+      applyEvent(pyramid::TurnEvent::Done);  // degraded to text -> Idle
     }
   } else {
     Serial.print("error: ");
     Serial.println(a.err.c_str());
     Serial.printf("[stats] failed after %lu ms\n",
                   static_cast<unsigned long>(allMs));
-    showStatus("error");
+    applyEvent(pyramid::TurnEvent::Fail);  // -> Error
   }
 }
 
@@ -624,7 +659,7 @@ void rePrompt(const char* reason) {
     playbackCaptured();
   } else {
     logf("re-prompt tts failed (%s)", terr.c_str());
-    showStatus("idle");
+    applyEvent(pyramid::TurnEvent::Done);  // -> Idle
   }
 }
 
@@ -635,8 +670,7 @@ void voiceTurn() {
   if (g_pcmLen == 0) return;
   if (g_offline) {
     Serial.println("offline: input paused (reconnecting)");
-    showStatus("idle");
-    return;
+    return;  // already in Offline (serviceWiFi); leave the state as-is
   }
   // Noise/length gate: skip silence and accidental taps before any network call.
   const pyramid::PcmStats st = pyramid::analyzePcm(g_pcm, g_pcmLen, 32700);
@@ -644,11 +678,11 @@ void voiceTurn() {
                                  REC_MIN_PEAK)) {
     logf("voice: too short/quiet (%u samples, peak=%d) — ignored",
          static_cast<unsigned>(g_pcmLen), static_cast<int>(st.peak));
-    showStatus("idle");
+    applyEvent(pyramid::TurnEvent::Done);  // nothing to do -> Idle
     return;
   }
 
-  showStatus("thinking");  // transcribing
+  applyEvent(pyramid::TurnEvent::Think);  // transcribing
   std::string transcript, err;
   float confidence = 0.0f;
   const uint32_t asrStart = millis();
@@ -682,8 +716,8 @@ void setup() {
   const uint32_t t0 = millis();
   while (!Serial && millis() - t0 < 2000) delay(10);  // let USB-CDC enumerate
 
-  Serial.println("Pyramid v0.3 -- quality and UX");
-  showStatus("boot");
+  Serial.println("Pyramid v1.4 -- states and UX");
+  setState(pyramid::TurnState::Offline);  // boot: not connected yet
 
   connectWiFi();
 
