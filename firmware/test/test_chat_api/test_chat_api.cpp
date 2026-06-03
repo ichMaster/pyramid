@@ -7,6 +7,7 @@
 //
 // (The firmware/README.md has the exact command with the resolved path.)
 
+#include <unity.h>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -20,17 +21,13 @@ using pyramid::isRetryableHttpStatus;
 using pyramid::parseChatReply;
 using pyramid::Turn;
 
-static int g_failures = 0;
 
-#define CHECK(cond, msg)                  \
-  do {                                    \
-    if (!(cond)) {                        \
-      std::printf("FAIL: %s\n", (msg));   \
-      ++g_failures;                       \
-    }                                     \
-  } while (0)
+#define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
 
-int main() {
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_all(void) {
   // 1. buildChatRequest emits valid JSON: model + max_tokens + top-level
   //    system(persona) + the history turns (Anthropic Messages shape).
   {
@@ -164,10 +161,10 @@ int main() {
     CHECK(!isRetryableHttpStatus(200), "retry: 200 -> no");
   }
 
-  if (g_failures == 0) {
-    std::printf("ok - all tests passed\n");
-    return 0;
-  }
-  std::printf("FAILED - %d check(s) failed\n", g_failures);
-  return 1;
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_all);
+  return UNITY_END();
 }

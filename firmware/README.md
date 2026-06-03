@@ -86,22 +86,18 @@ then from `firmware/`:
 
 ## Host tests (pure logic)
 
-The line reader, `text_in` parser, history, backoff, the streaming decode
-(chunked + SSE + event parsing), and LLM JSON build/parse are pure C++, so they
-run on the host (formally folded into PlatformIO's native test env in v1).
-`test_chat_api` and `test_sse` need ArduinoJson's headers on the include path —
-point `-I` at your installed library's `src/` (e.g.
-`~/Documents/Arduino/libraries/ArduinoJson/src`):
+The pure, Arduino-free logic — line reader, `text_in` parser, history, backoff,
+the streaming decode (chunked + SSE + event parsing), and the LLM JSON
+build/parse — runs on the host via PlatformIO's **native** test environment
+(Unity). From `firmware/`:
 
 ```sh
-cd test
-AJ="$HOME/Documents/Arduino/libraries/ArduinoJson/src"
-c++ -std=c++17 -I../src test_line_reader.cpp -o test_line_reader && ./test_line_reader
-c++ -std=c++17 -I../src test_history.cpp     -o test_history     && ./test_history
-c++ -std=c++17 -I../src test_backoff.cpp     -o test_backoff     && ./test_backoff
-c++ -std=c++17 -I../src -I"$AJ" test_chat_api.cpp -o test_chat_api && ./test_chat_api
-c++ -std=c++17 -I../src -I"$AJ" test_sse.cpp      -o test_sse      && ./test_sse
+pio test -e native
 ```
+
+Each suite lives in `test/test_<name>/` and builds against the headers in
+`src/`; ArduinoJson is pulled from `lib_deps` for the native build. This is the
+host-test entry point CI runs (ARCHITECTURE §Testing and CI).
 
 The on-device read path (TLS socket + streamed SSE) only runs on the board, so
 it is covered by compile + the manual DoD check; the decode logic above is

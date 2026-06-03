@@ -9,6 +9,7 @@
 // for now it gives real host coverage of the line reader / text_in parser
 // that PYR-001 leaves on-device behavior (Wi-Fi, LCD) to a manual DoD check.
 
+#include <unity.h>
 #include <cstdio>
 #include <string>
 
@@ -18,15 +19,6 @@
 using pyramid::LineReader;
 using pyramid::TextIn;
 
-static int g_failures = 0;
-
-#define CHECK(cond, msg)                                  \
-  do {                                                    \
-    if (!(cond)) {                                        \
-      std::printf("FAIL: %s\n", (msg));                   \
-      ++g_failures;                                       \
-    }                                                     \
-  } while (0)
 
 // Feed an entire string; return the LAST completed line (and how many lines
 // completed) so multi-line cases are checkable.
@@ -42,7 +34,12 @@ static int feedAll(LineReader& r, const std::string& s, std::string& last) {
   return n;
 }
 
-int main() {
+#define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
+
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_all(void) {
   // 1. A newline-terminated line emits exactly that line.
   {
     LineReader r;
@@ -118,10 +115,10 @@ int main() {
     CHECK(!pyramid::parseTextIn("   \t\r", ev), "parse: blank -> false");
   }
 
-  if (g_failures == 0) {
-    std::printf("ok - all tests passed\n");
-    return 0;
-  }
-  std::printf("FAILED - %d check(s) failed\n", g_failures);
-  return 1;
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_all);
+  return UNITY_END();
 }

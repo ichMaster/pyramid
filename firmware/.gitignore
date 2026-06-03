@@ -12,9 +12,4 @@ build/
 *.hex
 *.map
 
-# Host test binaries
-test/test_line_reader
-test/test_chat_api
-test/test_history
-test/test_backoff
-test/test_sse
+# Host test binaries are built by `pio test -e native` into .pio/ (ignored above).

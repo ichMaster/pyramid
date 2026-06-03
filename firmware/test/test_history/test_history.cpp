@@ -4,6 +4,7 @@
 //   c++ -std=c++17 -I../pyramid test_history.cpp -o /tmp/test_history \
 //     && /tmp/test_history
 
+#include <unity.h>
 #include <cstdio>
 #include <string>
 
@@ -12,17 +13,13 @@
 using pyramid::History;
 using pyramid::Turn;
 
-static int g_failures = 0;
 
-#define CHECK(cond, msg)                  \
-  do {                                    \
-    if (!(cond)) {                        \
-      std::printf("FAIL: %s\n", (msg));   \
-      ++g_failures;                       \
-    }                                     \
-  } while (0)
+#define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
 
-int main() {
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_all(void) {
   // 1. Empty history has no turns.
   {
     History h;
@@ -83,10 +80,10 @@ int main() {
     CHECK(h.size() == 0, "clear: empty after clear");
   }
 
-  if (g_failures == 0) {
-    std::printf("ok - all tests passed\n");
-    return 0;
-  }
-  std::printf("FAILED - %d check(s) failed\n", g_failures);
-  return 1;
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_all);
+  return UNITY_END();
 }

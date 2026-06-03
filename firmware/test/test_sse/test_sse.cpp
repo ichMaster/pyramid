@@ -4,6 +4,7 @@
 //   c++ -std=c++17 -I../pyramid -I<ArduinoJson>/src \
 //     test_sse.cpp -o /tmp/test_sse && /tmp/test_sse
 
+#include <unity.h>
 #include <cstdio>
 #include <string>
 
@@ -17,15 +18,6 @@ using pyramid::extractSseData;
 using pyramid::parseStreamEvent;
 using pyramid::StreamEvent;
 
-static int g_failures = 0;
-
-#define CHECK(cond, msg)                  \
-  do {                                    \
-    if (!(cond)) {                        \
-      std::printf("FAIL: %s\n", (msg));   \
-      ++g_failures;                       \
-    }                                     \
-  } while (0)
 
 static std::string dechunkAll(const std::string& in, std::size_t step) {
   Dechunker d;
@@ -37,7 +29,12 @@ static std::string dechunkAll(const std::string& in, std::size_t step) {
   return out;
 }
 
-int main() {
+#define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
+
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_all(void) {
   // --- Dechunker --------------------------------------------------------
   // 1. Two chunks then terminator decode to the concatenated payload.
   {
@@ -184,10 +181,10 @@ int main() {
     CHECK(stop, "e2e: saw message_stop");
   }
 
-  if (g_failures == 0) {
-    std::printf("ok - all tests passed\n");
-    return 0;
-  }
-  std::printf("FAILED - %d check(s) failed\n", g_failures);
-  return 1;
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_all);
+  return UNITY_END();
 }
