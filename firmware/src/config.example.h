@@ -47,3 +47,15 @@
 // each request, for short-term context. Larger = more context, more tokens.
 // History is per-session only; nothing is persisted on the device.
 #define HISTORY_MAX_TURNS 8
+
+// --- Audio (v1.1) -----------------------------------------------------------
+// PCM capture/playback format (Echo Base mic/speaker). 16 kHz mono PCM16 is the
+// format the cloud ASR/TTS expect from v1.2+.
+#define AUDIO_SAMPLE_RATE 16000
+
+// Fixed maximum push-to-talk record duration (ms). Caps the RAM buffer:
+// AUDIO_SAMPLE_RATE * REC_MAX_MS/1000 samples * 2 bytes.
+#define REC_MAX_MS 4000
+
+// Speaker volume for playback (0–255).
+#define SPK_VOLUME 200

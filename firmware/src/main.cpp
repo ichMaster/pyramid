@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "audio.h"
 #include "backoff.h"
 #include "chat_api.h"
 #include "config.h"
@@ -60,6 +61,12 @@ pyramid::History g_history(HISTORY_MAX_TURNS);
 bool g_offline = false;
 int g_wifiAttempt = 0;
 uint32_t g_nextWifiTryMs = 0;
+
+// Audio capture (v1.1): fixed PCM16 mono record buffer, bounded by REC_MAX_MS.
+constexpr size_t kMaxSamples =
+    pyramid::samplesForMs(REC_MAX_MS, AUDIO_SAMPLE_RATE);
+int16_t g_pcm[kMaxSamples];
+size_t g_pcmLen = 0;  // valid samples captured in the last push-to-talk
 
 // All status logging routes through here and is gated by DEBUG_SERIAL, so the
 // device can be quietened later without touching call sites.
@@ -131,6 +138,42 @@ void serviceWiFi() {
     g_nextWifiTryMs = now + wait;
     ++g_wifiAttempt;
   }
+}
+
+// Push-to-talk capture (v1.1): record 16 kHz mono PCM16 from the Echo Base mic
+// while BtnA is held, bounded by REC_MAX_MS, then log length + level. Mic and
+// speaker share the I2S bus, so the speaker is released first. Mic bring-up
+// needs the board (manual DoD check); the sizing/level math is host-tested.
+void recordWhileHeld() {
+  showStatus("listening");
+  logf("rec: start");
+  // Mic is enabled once in setup(); re-enable only if a prior speaker use (from
+  // v1.2+) disabled it on the shared ES8311 codec.
+  if (!M5.Mic.isEnabled() && !M5.Mic.begin()) {
+    logf("rec: mic begin failed");
+    showStatus("error");
+    return;
+  }
+
+  size_t total = 0;
+  constexpr size_t kChunk = 512;
+  while (M5.BtnA.isPressed() && total < kMaxSamples) {
+    const size_t want = pyramid::capSamples(kChunk, kMaxSamples - total);
+    if (M5.Mic.record(&g_pcm[total], want, AUDIO_SAMPLE_RATE)) {
+      total += want;
+    }
+    M5.update();
+  }
+  while (M5.Mic.isRecording()) delay(1);  // drain queued DMA
+  g_pcmLen = total;
+
+  const pyramid::PcmStats st = pyramid::analyzePcm(g_pcm, g_pcmLen, 32700);
+  const uint32_t ms =
+      static_cast<uint32_t>(g_pcmLen * 1000ull / AUDIO_SAMPLE_RATE);
+  logf("rec: %u samples (%u ms) peak=%d clipped=%u", static_cast<unsigned>(g_pcmLen),
+       static_cast<unsigned>(ms), static_cast<int>(st.peak),
+       static_cast<unsigned>(st.clipped));
+  showStatus("idle");
 }
 
 // Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
@@ -296,8 +339,12 @@ Attempt llmTurn(const std::vector<pyramid::Turn>& turns) {
 
 void setup() {
   auto cfg = M5.config();
+  // Atomic Echo Base: ES8311 codec drives both the mic and the speaker.
+  // M5Unified initializes it (I2C + I2S) only when this flag is set.
+  cfg.external_speaker.atomic_echo = true;
   M5.begin(cfg);
   M5.Display.setTextSize(2);
+  M5.Mic.begin();  // ES8311 mic; speaker is enabled on demand (v1.2+)
 
   Serial.begin(kSerialBaud);
   const uint32_t t0 = millis();
@@ -361,8 +408,9 @@ void loop() {
     }
   }
 
-  if (M5.BtnA.wasPressed()) {
-    logf("button A pressed");
+  // Push-to-talk: hold BtnA to record from the mic (v1.1).
+  if (M5.BtnA.isPressed()) {
+    recordWhileHeld();
   }
 
   delay(5);
