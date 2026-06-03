@@ -22,12 +22,14 @@
 namespace pyramid {
 
 // Build the Messages API request body:
-//   {"model": <model>, "max_tokens": <maxTokens>, "system": <persona>,
+//   {"model": <model>, "max_tokens": <maxTokens>, "stream": true,
+//    "system": <persona>,
 //    "messages": [{"role": <turn.role>, "content": <turn.content>}, ...]}
 // The persona is a top-level `system` field (not a message); `turns` carries
 // the windowed conversation history (v0.3) and must start with a user turn and
-// alternate. ArduinoJson handles all escaping and passes UTF-8 (Ukrainian)
-// through as raw bytes.
+// alternate. `stream:true` requests an SSE response (see sse.h) so the device
+// can show time-to-first-token. ArduinoJson handles all escaping and passes
+// UTF-8 (Ukrainian) through as raw bytes.
 inline std::string buildChatRequest(const std::string& model,
                                     const std::string& persona,
                                     const std::vector<Turn>& turns,
@@ -35,6 +37,7 @@ inline std::string buildChatRequest(const std::string& model,
   JsonDocument doc;
   doc["model"] = model;
   doc["max_tokens"] = maxTokens;
+  doc["stream"] = true;
   doc["system"] = persona;
   JsonArray messages = doc["messages"].to<JsonArray>();
 
@@ -55,12 +58,20 @@ inline bool isRetryableHttpStatus(int status) {
   return status == 429 || (status >= 500 && status < 600);
 }
 
+// Token accounting reported by the Messages API `usage` object.
+struct Usage {
+  int inputTokens = 0;
+  int outputTokens = 0;
+  int total() const { return inputTokens + outputTokens; }
+};
+
 // Parse a Messages API response. On success sets `reply` to the text of the
 // first `text` content block and returns true. On an API error object,
 // malformed JSON, or missing/empty content, sets `err` to a readable line and
-// returns false (so the caller surfaces it without crashing the loop).
+// returns false (so the caller surfaces it without crashing the loop). When
+// `usage` is non-null, it is filled from the response `usage` on success.
 inline bool parseChatReply(const std::string& body, std::string& reply,
-                           std::string& err) {
+                           std::string& err, Usage* usage = nullptr) {
   JsonDocument doc;
   DeserializationError jerr = deserializeJson(doc, body);
   if (jerr) {
@@ -86,6 +97,10 @@ inline bool parseChatReply(const std::string& body, std::string& reply,
       if (reply.empty()) {
         err = "empty reply content";
         return false;
+      }
+      if (usage) {
+        usage->inputTokens = doc["usage"]["input_tokens"] | 0;
+        usage->outputTokens = doc["usage"]["output_tokens"] | 0;
       }
       return true;
     }

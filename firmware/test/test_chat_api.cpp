@@ -41,6 +41,7 @@ int main() {
     CHECK(!deserializeJson(doc, body), "build: valid JSON");
     CHECK(doc["model"] == "claude-haiku-4-5-20251001", "build: model field");
     CHECK(doc["max_tokens"] == 1024, "build: max_tokens field");
+    CHECK(doc["stream"] == true, "build: stream flag set");
     CHECK(doc["system"] == "Be kind.", "build: top-level system persona");
     CHECK(doc["messages"].size() == 1, "build: one message");
     CHECK(doc["messages"][0]["role"] == "user", "build: msg0 is user");
@@ -128,6 +129,28 @@ int main() {
     std::string resp = R"({"content":[{"type":"tool_use","name":"x"}]})";
     std::string reply, err;
     CHECK(!parseChatReply(resp, reply, err), "parse: no text block -> false");
+  }
+
+  // 8b. Usage out-param is filled from the response on success.
+  {
+    std::string resp =
+        R"({"content":[{"type":"text","text":"Готово"}],)"
+        R"("usage":{"input_tokens":42,"output_tokens":17}})";
+    std::string reply, err;
+    pyramid::Usage usage;
+    CHECK(parseChatReply(resp, reply, err, &usage), "usage: parse ok");
+    CHECK(usage.inputTokens == 42, "usage: input tokens");
+    CHECK(usage.outputTokens == 17, "usage: output tokens");
+    CHECK(usage.total() == 59, "usage: total tokens");
+  }
+
+  // 8c. Missing usage leaves the counters at zero (no crash).
+  {
+    std::string resp = R"({"content":[{"type":"text","text":"x"}]})";
+    std::string reply, err;
+    pyramid::Usage usage;
+    CHECK(parseChatReply(resp, reply, err, &usage), "usage(missing): parse ok");
+    CHECK(usage.total() == 0, "usage(missing): zero tokens");
   }
 
   // 9. isRetryableHttpStatus: 429 + 5xx are transient; 4xx + 2xx are not.

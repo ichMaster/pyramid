@@ -4,7 +4,8 @@
 // Boots the AtomS3R + Echo Base, brings up Wi-Fi from config.h, and turns the
 // USB-CDC port into a line-oriented text channel: a typed line becomes a
 // `text_in` event, is sent (with a short rolling history) to a cloud LLM over
-// direct HTTPS, and the model's reply is printed back. The loop is hardened:
+// direct HTTPS, and the model's reply is streamed back token by token (SSE).
+// The loop is hardened:
 // bounded retry on transient LLM failures, non-blocking Wi-Fi reconnect with
 // exponential backoff (input paused while offline), and coarse LCD states. All
 // status logging goes through logf(), gated by DEBUG_SERIAL. The device stays
@@ -30,6 +31,7 @@
 #include "history.h"
 #include "line_reader.h"
 #include "serial_protocol.h"
+#include "sse.h"
 
 namespace {
 
@@ -128,12 +130,16 @@ void serviceWiFi() {
 }
 
 // Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
-// hint on whether retrying is worthwhile.
+// hint on whether retrying is worthwhile. Also carries per-attempt timing and
+// the token usage reported by the API.
 struct Attempt {
   bool ok = false;
   bool retryable = false;
   std::string reply;
   std::string err;
+  uint32_t firstMs = 0;  // request sent -> server response received
+  uint32_t totalMs = 0;  // request sent -> body fully read
+  pyramid::Usage usage;
 };
 
 // One synchronous HTTPS attempt: POST persona + history to the LLM and read
@@ -154,37 +160,118 @@ Attempt llmAttempt(const std::vector<pyramid::Turn>& turns) {
   http.addHeader("x-api-key", LLM_API_KEY);
   http.addHeader("anthropic-version", LLM_ANTHROPIC_VERSION);
 
+  http.addHeader("accept", "text/event-stream");
+
   const std::string body =
       pyramid::buildChatRequest(LLM_MODEL, LLM_PERSONA, turns, LLM_MAX_TOKENS);
+
+  const uint32_t tStart = millis();
   const int status = http.POST(String(body.c_str()));
 
   if (status <= 0) {
     r.err = std::string("transport error: ") +
             HTTPClient::errorToString(status).c_str();
-    r.retryable = true;  // transport-level: worth a retry
+    r.retryable = true;  // transport-level, nothing streamed yet: worth a retry
+    r.totalMs = millis() - tStart;
     http.end();
     return r;
   }
 
-  const String payload = http.getString();
-  http.end();
-
   if (status < 200 || status >= 300) {
+    // Errors come back as a normal (non-streamed) JSON body.
+    const String payload = http.getString();
     std::string discard, perr;
     pyramid::parseChatReply(payload.c_str(), discard, perr);
     r.err = "http " + std::to_string(status) + (perr.empty() ? "" : ": " + perr);
     r.retryable = pyramid::isRetryableHttpStatus(status);
+    r.totalMs = millis() - tStart;
+    http.end();
     return r;
   }
 
-  r.ok = pyramid::parseChatReply(payload.c_str(), r.reply, r.err);
-  return r;  // a 2xx that won't parse is not retryable (r.retryable stays false)
+  // 2xx: read the SSE stream, printing tokens as they arrive and capturing the
+  // time-to-first-token + usage. Raw socket bytes -> dechunk -> SSE lines ->
+  // events (all of that decode path is host-tested in sse.h).
+  WiFiClient* stream = http.getStreamPtr();
+  pyramid::Dechunker dechunk;
+  pyramid::LineReader sseLines;
+  std::string decoded, line, dataJson;
+  bool gotFirst = false, sawStop = false, streamErr = false;
+  uint8_t buf[256];
+  uint32_t lastRx = millis();
+
+  while (!sawStop && !streamErr) {
+    const int avail = stream ? stream->available() : 0;
+    if (avail <= 0) {
+      if (!http.connected() && (!stream || stream->available() == 0)) break;
+      if (millis() - lastRx > kHttpReadMs) {
+        r.err = "stream timeout";
+        break;
+      }
+      delay(2);
+      continue;
+    }
+    const int want = avail < static_cast<int>(sizeof(buf)) ? avail
+                                                           : static_cast<int>(sizeof(buf));
+    const int n = stream->readBytes(buf, want);
+    if (n <= 0) {
+      delay(2);
+      continue;
+    }
+    lastRx = millis();
+
+    decoded.clear();
+    dechunk.feed(reinterpret_cast<const char*>(buf), n, decoded);
+    for (char ch : decoded) {
+      if (!sseLines.feed(ch, line)) continue;
+      if (!pyramid::extractSseData(line, dataJson)) continue;
+      pyramid::StreamEvent ev;
+      if (!pyramid::parseStreamEvent(dataJson, ev)) continue;
+      switch (ev.kind) {
+        case pyramid::StreamEvent::kMessageStart:
+          r.usage.inputTokens = ev.inputTokens;
+          r.usage.outputTokens = ev.outputTokens;
+          break;
+        case pyramid::StreamEvent::kTextDelta:
+          if (!gotFirst) {
+            gotFirst = true;
+            r.firstMs = millis() - tStart;  // genuine time-to-first-token
+          }
+          r.reply += ev.text;
+          Serial.print(ev.text.c_str());  // stream to serial as it arrives
+          break;
+        case pyramid::StreamEvent::kMessageDelta:
+          r.usage.outputTokens = ev.outputTokens;  // cumulative final count
+          break;
+        case pyramid::StreamEvent::kError:
+          streamErr = true;
+          r.err = ev.error;
+          break;
+        case pyramid::StreamEvent::kMessageStop:
+          sawStop = true;
+          break;
+        default:
+          break;
+      }
+      if (sawStop || streamErr) break;
+    }
+  }
+
+  http.end();
+  r.totalMs = millis() - tStart;
+  if (gotFirst) {
+    Serial.println();  // terminate the streamed reply line
+    r.ok = true;       // a mid-stream hiccup after text keeps the partial reply
+  } else if (r.err.empty()) {
+    r.err = "empty stream";
+  }
+  return r;  // streamed turns are committed once they print; not retried
 }
 
-// A full chat turn with bounded retry + backoff. Returns true and sets `reply`
-// on success; false and sets `err` (a readable line) once retries are spent.
-bool llmTurn(const std::vector<pyramid::Turn>& turns, std::string& reply,
-             std::string& err) {
+// A full chat turn with bounded retry + backoff. Returns the final Attempt:
+// .ok with .reply / .usage / .firstMs on success, or !ok with .err once
+// retries are spent.
+Attempt llmTurn(const std::vector<pyramid::Turn>& turns) {
   Attempt a;
   for (int i = 0; i <= kMaxRetries; ++i) {
     if (i > 0) {
@@ -195,14 +282,10 @@ bool llmTurn(const std::vector<pyramid::Turn>& turns, std::string& reply,
       delay(wait);
     }
     a = llmAttempt(turns);
-    if (a.ok) {
-      reply = a.reply;
-      return true;
-    }
+    if (a.ok) return a;
     if (!a.retryable) break;
   }
-  err = a.err;
-  return false;
+  return a;
 }
 
 }  // namespace
@@ -248,15 +331,26 @@ void loop() {
         std::vector<pyramid::Turn> req = g_history.turns();
         req.push_back(pyramid::Turn{"user", ev.text});
 
-        std::string reply, err;
-        if (llmTurn(req, reply, err)) {
-          Serial.println(reply.c_str());
+        const uint32_t turnStart = millis();
+        const Attempt a = llmTurn(req);  // reply streams to serial inside
+        const uint32_t allMs = millis() - turnStart;
+
+        if (a.ok) {
+          // Per-turn stats: first_token = time until the first streamed token;
+          // total = whole turn incl. any retries; tokens from the API usage.
+          Serial.printf(
+              "[stats] first_token=%lu ms  total=%lu ms  tokens: in=%d out=%d total=%d\n",
+              static_cast<unsigned long>(a.firstMs),
+              static_cast<unsigned long>(allMs), a.usage.inputTokens,
+              a.usage.outputTokens, a.usage.total());
           g_history.addUser(ev.text);
-          g_history.addAssistant(reply);
+          g_history.addAssistant(a.reply);
           showStatus("idle");
         } else {
           Serial.print("error: ");
-          Serial.println(err.c_str());
+          Serial.println(a.err.c_str());
+          Serial.printf("[stats] failed after %lu ms\n",
+                        static_cast<unsigned long>(allMs));
           showStatus("error");
         }
       }

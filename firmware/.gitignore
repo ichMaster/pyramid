@@ -14,3 +14,4 @@ test/test_line_reader
 test/test_chat_api
 test/test_history
 test/test_backoff
+test/test_sse

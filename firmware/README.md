@@ -16,12 +16,14 @@ firmware/
     chat_api.h          # pure: LLM request build / reply parse / retry class (host-testable)
     history.h           # pure: short rolling conversation history (host-testable)
     backoff.h           # pure: capped exponential backoff (host-testable)
+    sse.h               # pure: chunked + SSE streaming decode (host-testable)
     config.example.h    # config template — copy to config.h (gitignored)
   test/
     test_line_reader.cpp  # host unit test for the serial logic
     test_chat_api.cpp     # host unit test for the LLM JSON build/parse + retry
     test_history.cpp      # host unit test for history windowing
     test_backoff.cpp      # host unit test for the backoff schedule
+    test_sse.cpp          # host unit test for the streaming decode pipeline
 ```
 
 `pyramid/` is the Arduino sketch folder (the `.ino` matches the folder name);
@@ -34,8 +36,8 @@ so the Arduino build ignores it.
   becomes a `text_in` event. Status logs gated by `DEBUG_SERIAL`.
 - **v0.2 (PYR-002):** each `text_in` is sent to **Claude** via the Anthropic
   Messages API over **direct HTTPS** (persona as the top-level `system`), and
-  the model's reply is printed to serial. The call is synchronous (`thinking…`
-  while waiting); HTTP/JSON errors surface as one `error: <msg>` line and the
+  the model's reply is **streamed** to serial token by token (SSE,
+  `stream:true`). HTTP/JSON errors surface as one `error: <msg>` line and the
   loop never hangs. Replies are in Ukrainian per the persona.
 - **v0.3 (PYR-003):** robustness. A short **rolling history** (`HISTORY_MAX_TURNS`)
   is resent with each request for context; the LLM call does a **bounded retry**
@@ -44,6 +46,13 @@ so the Arduino build ignores it.
   exponential backoff, input is paused while offline, and the LCD shows
   `idle / thinking / error / offline`. Only successful turns are committed to
   history, so a failed call can't poison the context.
+
+After each reply the device prints a per-turn stats line, e.g.
+`[stats] first_token=420 ms  total=1180 ms  tokens: in=48 out=73 total=121`.
+Because the reply is streamed, `first_token` is the genuine time to the first
+streamed token (well below `total`). `total` is the whole turn including any
+retries, and the token counts come from the API's `usage` (input from
+`message_start`, output from the final `message_delta`).
 
 The persona, model, endpoint, and API key all live in `config.h` — behavior is
 config-driven, not hardcoded. Default model is `claude-haiku-4-5-20251001`
@@ -74,20 +83,26 @@ arduino-cli compile --fqbn m5stack:esp32:m5stack_atoms3r pyramid
 
 ## Host tests (pure logic)
 
-The line reader, `text_in` parser, history, backoff, and LLM JSON build/parse
-are pure C++, so they run on the host (formally folded into PlatformIO's native
-test env in v1). `test_chat_api` needs ArduinoJson's headers on the include
-path — point `-I` at your installed library's `src/` (e.g.
+The line reader, `text_in` parser, history, backoff, the streaming decode
+(chunked + SSE + event parsing), and LLM JSON build/parse are pure C++, so they
+run on the host (formally folded into PlatformIO's native test env in v1).
+`test_chat_api` and `test_sse` need ArduinoJson's headers on the include path —
+point `-I` at your installed library's `src/` (e.g.
 `~/Documents/Arduino/libraries/ArduinoJson/src`):
 
 ```sh
 cd test
+AJ="$HOME/Documents/Arduino/libraries/ArduinoJson/src"
 c++ -std=c++17 -I../pyramid test_line_reader.cpp -o test_line_reader && ./test_line_reader
 c++ -std=c++17 -I../pyramid test_history.cpp     -o test_history     && ./test_history
 c++ -std=c++17 -I../pyramid test_backoff.cpp     -o test_backoff     && ./test_backoff
-c++ -std=c++17 -I../pyramid -I"$HOME/Documents/Arduino/libraries/ArduinoJson/src" \
-  test_chat_api.cpp -o test_chat_api && ./test_chat_api
+c++ -std=c++17 -I../pyramid -I"$AJ" test_chat_api.cpp -o test_chat_api && ./test_chat_api
+c++ -std=c++17 -I../pyramid -I"$AJ" test_sse.cpp      -o test_sse      && ./test_sse
 ```
+
+The on-device read path (TLS socket + streamed SSE) only runs on the board, so
+it is covered by compile + the manual DoD check; the decode logic above is
+fully host-tested (including a `data:` line split across a chunk boundary).
 
 On-device behavior (Wi-Fi join, LCD, button) and a live LLM round-trip — the
 HTTPS call succeeding and the reply actually being in Ukrainian — are verified
