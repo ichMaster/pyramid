@@ -28,18 +28,19 @@ so the Arduino build ignores it.
 
 - **v0.1 (PYR-001):** board + Wi-Fi + USB-CDC line channel; a typed line
   becomes a `text_in` event. Status logs gated by `DEBUG_SERIAL`.
-- **v0.2 (PYR-002):** each `text_in` is sent to a cloud LLM over **direct
-  HTTPS** (persona system prompt from config, single user turn), and the
-  model's reply is printed to serial. The call is synchronous (`thinking…`
-  while waiting); HTTP/JSON errors surface as one `error: <msg>` line and the
-  loop never hangs. Replies are in Ukrainian per the persona. Rolling history
-  + Wi-Fi auto-reconnect land in v0.3 (PYR-003).
+- **v0.2 (PYR-002):** each `text_in` is sent to **Claude** via the Anthropic
+  Messages API over **direct HTTPS** (persona as the top-level `system`, single
+  user turn), and the model's reply is printed to serial. The call is
+  synchronous (`thinking…` while waiting); HTTP/JSON errors surface as one
+  `error: <msg>` line and the loop never hangs. Replies are in Ukrainian per
+  the persona. Rolling history + Wi-Fi auto-reconnect land in v0.3 (PYR-003).
 
 The persona, model, endpoint, and API key all live in `config.h` — behavior is
-config-driven, not hardcoded. **Security:** the key is extractable from a
-flashed device; acceptable only under the private allowlist model (ARCHITECTURE
-§Security) — never publish such firmware. TLS uses `setInsecure()` in v0
-(no cert pinning).
+config-driven, not hardcoded. Default model is `claude-haiku-4-5-20251001`
+(fast/cheap for short replies); swap to Sonnet/Opus in config for more depth.
+**Security:** the key is extractable from a flashed device; acceptable only
+under the private allowlist model (ARCHITECTURE §Security) — never publish such
+firmware. TLS uses `setInsecure()` in v0 (no cert pinning).
 
 ## Build & flash (Arduino IDE)
 
@@ -47,8 +48,9 @@ flashed device; acceptable only under the private allowlist model (ARCHITECTURE
    (v7) libraries.
 2. Select board **M5AtomS3R**.
 3. `cp pyramid/config.example.h pyramid/config.h` and set `WIFI_SSID` /
-   `WIFI_PASS`, plus `LLM_ENDPOINT` / `LLM_MODEL` / `LLM_API_KEY` /
-   `LLM_PERSONA` (and `DEBUG_SERIAL`).
+   `WIFI_PASS`, plus the Anthropic settings `LLM_ENDPOINT` / `LLM_MODEL` /
+   `LLM_API_KEY` (an `sk-ant-…` key) / `LLM_ANTHROPIC_VERSION` /
+   `LLM_MAX_TOKENS` / `LLM_PERSONA` (and `DEBUG_SERIAL`).
 4. Open `pyramid/pyramid.ino`, compile, and upload.
 5. Open the Serial Monitor at **115200**, type a line, press Enter — the device
    replies via the LLM. Wi-Fi state is logged on boot.

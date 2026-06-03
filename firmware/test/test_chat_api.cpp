@@ -28,45 +28,62 @@ static int g_failures = 0;
   } while (0)
 
 int main() {
-  // 1. buildChatRequest emits valid JSON with model + system(persona) + user.
+  // 1. buildChatRequest emits valid JSON: model + max_tokens + top-level
+  //    system(persona) + a single user message (Anthropic Messages shape).
   {
-    std::string body = buildChatRequest("gpt-4o-mini", "Be kind.", "hello");
+    std::string body =
+        buildChatRequest("claude-haiku-4-5-20251001", "Be kind.", "hello", 1024);
     JsonDocument doc;
     CHECK(!deserializeJson(doc, body), "build: valid JSON");
-    CHECK(doc["model"] == "gpt-4o-mini", "build: model field");
-    CHECK(doc["messages"].size() == 2, "build: two messages");
-    CHECK(doc["messages"][0]["role"] == "system", "build: msg0 is system");
-    CHECK(doc["messages"][0]["content"] == "Be kind.", "build: persona content");
-    CHECK(doc["messages"][1]["role"] == "user", "build: msg1 is user");
-    CHECK(doc["messages"][1]["content"] == "hello", "build: user content");
+    CHECK(doc["model"] == "claude-haiku-4-5-20251001", "build: model field");
+    CHECK(doc["max_tokens"] == 1024, "build: max_tokens field");
+    CHECK(doc["system"] == "Be kind.", "build: top-level system persona");
+    CHECK(doc["messages"].size() == 1, "build: one message");
+    CHECK(doc["messages"][0]["role"] == "user", "build: msg0 is user");
+    CHECK(doc["messages"][0]["content"] == "hello", "build: user content");
+    CHECK(!doc["messages"][0]["role"].is<const char*>() ||
+              doc["messages"][0]["role"] != "system",
+          "build: no system role in messages");
   }
 
   // 2. Escaping + UTF-8: quotes survive and Ukrainian round-trips.
   {
-    std::string body = buildChatRequest("m", "p", "він сказав \"привіт\"");
+    std::string body = buildChatRequest("m", "p", "він сказав \"привіт\"", 256);
     JsonDocument doc;
     CHECK(!deserializeJson(doc, body), "build: escaped JSON still valid");
-    CHECK(doc["messages"][1]["content"] == "він сказав \"привіт\"",
+    CHECK(doc["messages"][0]["content"] == "він сказав \"привіт\"",
           "build: quotes + UTF-8 preserved");
   }
 
-  // 3. parseChatReply: success extracts choices[0].message.content.
+  // 3. parseChatReply: success extracts the first text block's text.
   {
     std::string resp =
-        R"({"choices":[{"message":{"role":"assistant","content":"Привіт!"}}]})";
+        R"({"type":"message","role":"assistant",)"
+        R"("content":[{"type":"text","text":"Привіт!"}]})";
     std::string reply, err;
     CHECK(parseChatReply(resp, reply, err), "parse: success returns true");
-    CHECK(reply == "Привіт!", "parse: extracts content");
+    CHECK(reply == "Привіт!", "parse: extracts text block");
     CHECK(err.empty(), "parse: no error on success");
+  }
+
+  // 3b. Skips a leading non-text block (e.g. a future tool_use) to find text.
+  {
+    std::string resp =
+        R"({"content":[{"type":"tool_use","name":"x"},)"
+        R"({"type":"text","text":"Готово"}]})";
+    std::string reply, err;
+    CHECK(parseChatReply(resp, reply, err), "parse: finds text after non-text");
+    CHECK(reply == "Готово", "parse: picks the text block");
   }
 
   // 4. API-level error object -> false with the API message.
   {
     std::string resp =
-        R"({"error":{"message":"Invalid API key","type":"auth"}})";
+        R"({"type":"error","error":{"type":"authentication_error",)"
+        R"("message":"invalid x-api-key"}})";
     std::string reply, err;
     CHECK(!parseChatReply(resp, reply, err), "parse: api error -> false");
-    CHECK(err.find("Invalid API key") != std::string::npos,
+    CHECK(err.find("invalid x-api-key") != std::string::npos,
           "parse: surfaces api message");
   }
 
@@ -77,18 +94,25 @@ int main() {
     CHECK(err.find("parse") != std::string::npos, "parse: reports parse error");
   }
 
-  // 6. Missing content -> false.
+  // 6. Missing content array -> false.
   {
-    std::string resp = R"({"choices":[{"message":{"role":"assistant"}}]})";
+    std::string resp = R"({"type":"message","role":"assistant"})";
     std::string reply, err;
     CHECK(!parseChatReply(resp, reply, err), "parse: missing content -> false");
   }
 
-  // 7. Empty content -> false.
+  // 7. Empty text -> false.
   {
-    std::string resp = R"({"choices":[{"message":{"content":""}}]})";
+    std::string resp = R"({"content":[{"type":"text","text":""}]})";
     std::string reply, err;
     CHECK(!parseChatReply(resp, reply, err), "parse: empty content -> false");
+  }
+
+  // 8. Content array with no text block -> false.
+  {
+    std::string resp = R"({"content":[{"type":"tool_use","name":"x"}]})";
+    std::string reply, err;
+    CHECK(!parseChatReply(resp, reply, err), "parse: no text block -> false");
   }
 
   if (g_failures == 0) {

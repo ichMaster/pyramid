@@ -92,11 +92,12 @@ bool llmTurn(const std::string& userText, std::string& reply,
     err = "http begin failed";
     return false;
   }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + LLM_API_KEY);
+  http.addHeader("content-type", "application/json");
+  http.addHeader("x-api-key", LLM_API_KEY);
+  http.addHeader("anthropic-version", LLM_ANTHROPIC_VERSION);
 
-  const std::string body =
-      pyramid::buildChatRequest(LLM_MODEL, LLM_PERSONA, userText);
+  const std::string body = pyramid::buildChatRequest(
+      LLM_MODEL, LLM_PERSONA, userText, LLM_MAX_TOKENS);
   const int status = http.POST(String(body.c_str()));
 
   if (status <= 0) {

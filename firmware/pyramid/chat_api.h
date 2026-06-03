@@ -1,13 +1,13 @@
 #pragma once
 
-// Pyramid v0.2 — LLM chat API request/response shaping.
+// Pyramid v0.2 — LLM chat API request/response shaping (Anthropic Messages).
 //
-// Pure JSON build/parse for an OpenAI-compatible chat-completions API
-// (DeepSeek / Qwen / OpenAI / etc. all speak this shape). Kept free of any
-// Arduino/network dependency so it is host-testable against recorded mock
-// responses (see ../test/test_chat_api.cpp); the .ino owns the actual TLS
-// POST. Matches ARCHITECTURE §Contracts (LLM call): system = persona,
-// messages[]; output = choices[0].message.content.
+// Pure JSON build/parse for the Anthropic Messages API
+// (https://docs.anthropic.com/en/api/messages). Kept free of any Arduino/
+// network dependency so it is host-testable against recorded mock responses
+// (see ../test/test_chat_api.cpp); the .ino owns the actual TLS POST and the
+// x-api-key / anthropic-version headers. Matches ARCHITECTURE §Contracts (LLM
+// call): system = persona, messages[]; output = reply text.
 //
 // v0.2 sends a single user turn; the rolling history window arrives in v0.3
 // (PYR-003). Requires ArduinoJson v7 (header-only, compiles on host too).
@@ -18,22 +18,20 @@
 
 namespace pyramid {
 
-// Build the chat-completions request body:
-//   {"model": <model>,
-//    "messages": [{"role":"system","content":<persona>},
-//                 {"role":"user","content":<userText>}]}
-// ArduinoJson handles all escaping (quotes, newlines) and passes UTF-8
-// (Ukrainian) through as raw bytes.
+// Build the Messages API request body:
+//   {"model": <model>, "max_tokens": <maxTokens>, "system": <persona>,
+//    "messages": [{"role":"user","content":<userText>}]}
+// The persona is a top-level `system` field (not a message). ArduinoJson
+// handles all escaping and passes UTF-8 (Ukrainian) through as raw bytes.
 inline std::string buildChatRequest(const std::string& model,
                                     const std::string& persona,
-                                    const std::string& userText) {
+                                    const std::string& userText,
+                                    int maxTokens) {
   JsonDocument doc;
   doc["model"] = model;
+  doc["max_tokens"] = maxTokens;
+  doc["system"] = persona;
   JsonArray messages = doc["messages"].to<JsonArray>();
-
-  JsonObject sys = messages.add<JsonObject>();
-  sys["role"] = "system";
-  sys["content"] = persona;
 
   JsonObject usr = messages.add<JsonObject>();
   usr["role"] = "user";
@@ -44,8 +42,8 @@ inline std::string buildChatRequest(const std::string& model,
   return out;
 }
 
-// Parse a chat-completions response. On success sets `reply` to
-// choices[0].message.content and returns true. On an API error object,
+// Parse a Messages API response. On success sets `reply` to the text of the
+// first `text` content block and returns true. On an API error object,
 // malformed JSON, or missing/empty content, sets `err` to a readable line and
 // returns false (so the caller surfaces it without crashing the loop).
 inline bool parseChatReply(const std::string& body, std::string& reply,
@@ -57,24 +55,30 @@ inline bool parseChatReply(const std::string& body, std::string& reply,
     return false;
   }
 
-  // API-level error object: {"error":{"message": "..."}}.
+  // API-level error object: {"type":"error","error":{"message": "..."}}.
   if (doc["error"].is<JsonObject>()) {
     const char* m = doc["error"]["message"] | "unknown API error";
     err = std::string("api error: ") + m;
     return false;
   }
 
-  JsonVariant content = doc["choices"][0]["message"]["content"];
-  if (!content.is<const char*>()) {
-    err = "no reply content in response";
+  // Success: content is an array of blocks; take the first {"type":"text"}.
+  if (!doc["content"].is<JsonArrayConst>()) {
+    err = "no content array in response";
     return false;
   }
-  reply = content.as<const char*>();
-  if (reply.empty()) {
-    err = "empty reply content";
-    return false;
+  for (JsonObjectConst block : doc["content"].as<JsonArrayConst>()) {
+    if (block["type"] == "text") {
+      reply = block["text"] | "";
+      if (reply.empty()) {
+        err = "empty reply content";
+        return false;
+      }
+      return true;
+    }
   }
-  return true;
+  err = "no text block in response";
+  return false;
 }
 
 }  // namespace pyramid
