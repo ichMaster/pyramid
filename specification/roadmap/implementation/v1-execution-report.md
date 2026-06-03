@@ -3,24 +3,29 @@
 **Date:** 2026-06-03
 **Branch:** main
 **Label:** v1::version:1
-**Scope:** phases **v1.1** (Audio I/O + PlatformIO, PYR-004…007), **v1.2** (TTS output, PYR-008…010), **v1.3** (ASR / full voice loop, PYR-011…013)
+**Scope:** phases **v1.1** (Audio I/O + PlatformIO, PYR-004…007), **v1.2** (TTS output, PYR-008…010), **v1.3** (ASR / full voice loop, PYR-011…013), **v1.4** (states / UX, PYR-014…017)
 **Executed by:** Claude Code
 
-> v1.1 (released **1.1.0**) and v1.2 (released **1.2.0**) are complete. **v1.3 is
-> complete and hardware-verified**: you hold the button, speak Ukrainian, and
-> hear a reply — the full voice loop. All **10** issues (PYR-004…013) closed.
-> Only **v1.4 (states/UX)** remains in v1. v1 is **incomplete** → no version bump
-> yet (v1.3 would release as `1.3.0` on confirmation). The device now speaks in
-> the **Лілі** character.
+> v1.1 (**1.1.0**), v1.2 (**1.2.0**), and v1.3 (**1.3.0**) are released and
+> hardware-verified — the full voice loop works: hold the button, speak
+> Ukrainian, hear a reply. **v1.4 (states/UX) is now code-complete**: a turn-state
+> machine drives the LCD, pause-based end-of-utterance, mid-turn resilience, and
+> the ASR pre-warm / timing-attribution latency wins. All **14** issues
+> (PYR-004…017) closed. With v1.4 done, **v1 is complete** (would release as
+> `1.4.0` on confirmation). The default persona was reverted to **Піраміда** for
+> v1 (the Лілі canon moves server-side in v2). v1.4's on-device behavior (LCD
+> legibility, VAD tuning, induced-failure recovery, the pre-warm latency delta)
+> awaits a manual upload + check.
 
 ## Summary
 
 | Status | Count |
 |--------|-------|
 | Completed & hardware-verified (closed) | 10 |
+| Completed, host-validated / on-device check pending (closed) | 4 |
 | Failed | 0 |
 | Skipped | 0 |
-| Remaining (v1.4) | not yet scoped |
+| Remaining | 0 |
 
 ## Issues
 
@@ -36,6 +41,10 @@
 | 11 | PYR-011 | Cloud ASR client (Deepgram → transcript) | v1.3 | completed | 1fb87b5 | 4 | native 9/9 + hardware |
 | 12 | PYR-012 | Full voice loop (button → ASR → LLM → TTS → speaker) | v1.3 | completed | 2417c93 | 1 | hardware (~10 turns) |
 | 13 | PYR-013 | ASR robustness (gate / re-prompt / µ-law+retry) | v1.3 | completed | 6744e66 | 4 | native 9/9 + hardware |
+| 14 | PYR-014 | Turn-state machine + LCD states | v1.4 | completed | 7bd3dd2 | 3 | native 6/6 (states) + build |
+| 15 | PYR-015 | Pause-based end-of-utterance (VAD) | v1.4 | completed | 978e87b | 4 | native 5/5 (vad) + build |
+| 16 | PYR-016 | Mid-turn resilience (Wi-Fi loss + timeouts) | v1.4 | completed | 2bb499f | 1 | native (states) + build |
+| 17 | PYR-017 | Latency hardening (pre-warm ASR TLS + timing) | v1.4 | completed | a330078 | 3 | native (asr/parseHost) + build |
 
 > v1.2 tuning commit **a1022a5**: terse persona + 5 s buffer (`REC_MAX_MS`) + `TTS_MAX_CHARS` so a full reply fits buffered playback. (The streaming `ttsSpeak` experiment was reverted — see Notes.)
 > v1.3 optimization commit **f88b035**: µ-law ASR upload + retry (fix 408 SLOW_UPLOAD), TTS → `eleven_turbo_v2_5` (latency); **979912f**: Лілі persona.
@@ -93,21 +102,41 @@
 - Pure `shouldTranscribe()` (host-tested) gates too-short/too-quiet captures before any API call; empty/failed recognition → spoken re-prompt; bounded ASR timeout. The **µ-law upload + retry** fix the intermittent Deepgram **408 SLOW_UPLOAD** seen on longer clips.
 - **Validation:** ✅ `pio test -e native` 9/9 (`test_audio` covers `shouldTranscribe`, `test_ulaw` the encoder); ✅ **hardware**: silent captures gated; loop never hangs.
 
+### PYR-014: Turn-state machine + LCD states
+**Commit:** 7bd3dd2 · [#14](https://github.com/ichMaster/pyramid/issues/14) (closed)
+- New pure `src/states.h`: `TurnState` (Idle/Listening/Thinking/Replying/Error/Offline) + `TurnEvent` + `nextState()` + `label()`. `main.cpp` replaced all scattered `showStatus("…")` strings with `g_state` + `renderState()` (label + per-state LCD color) + `applyEvent()`; Replying is distinct from Thinking; Wi-Fi loss/restore override from any state.
+- **Validation:** ✅ `pio test -e native -f test_states` 6/6; ✅ `pio run` SUCCESS; grep confirms no `showStatus` remains. ⚠️ On-device LCD legibility through a turn: manual.
+
+### PYR-015: Pause-based end-of-utterance (VAD)
+**Commit:** 978e87b · [#15](https://github.com/ichMaster/pyramid/issues/15) (closed)
+- New pure `src/vad.h` `Endpointer`: fed each captured chunk's peak, ends on a trailing pause (hangover after speech) or the `recog_patience` cap; quiet-only never trips the pause path; a short gap doesn't cut. `recordWhileHeld()` analyzes each ~32 ms chunk and stops on release **or** pause (`end=pause|release`); `loop()` drains a held button after a pause-ended turn. New knobs `VAD_SILENCE_PEAK`/`VAD_HANGOVER_MS`/`RECOG_PATIENCE_MS`.
+- **Validation:** ✅ `pio test -e native -f test_vad` 5/5; ✅ `pio run` SUCCESS. ⚠️ On-device threshold/hangover tuning: manual. (Build first failed on aggregate-init under gnu++11 → added an explicit `Endpointer` ctor.)
+
+### PYR-016: Mid-turn resilience (Wi-Fi loss + per-stage timeouts)
+**Commit:** 2bb499f · [#16](https://github.com/ichMaster/pyramid/issues/16) (closed)
+- `failTurn()` centralizes mid-turn aborts: log → `ensureMicMode()` (restore the shared bus) → Offline if Wi-Fi dropped (input paused; `serviceWiFi` recovers) else Error. Error auto-returns to Idle after `kErrorDwellMs`, so the loop never sticks. LLM/speaker/network-ASR failures route through it; per-stage read/connect timeouts already bound each stage.
+- **Validation:** ✅ `pio run` SUCCESS; ✅ `pio test -e native` (the Fail→Error→Done→Idle and WifiLost→Offline→WifiUp→Idle transitions are covered by `test_states`). ⚠️ Induced-failure checks (pull Wi-Fi, stall a stage): manual.
+
+### PYR-017: Latency hardening (pre-warm ASR TLS + timing attribution)
+**Commit:** a330078 · [#17](https://github.com/ichMaster/pyramid/issues/17) (closed)
+- **#2:** `startAsrPrewarm()` opens the ASR TLS handshake on a background task (core 0) at capture start, overlapping the user's speech; `asrTranscribe()` waits for it and reuses the persistent `g_asrClient` (HTTPClient reuse), with a fresh-connect fallback. `parseHost()` (pure, in `asr_api.h`) derives the host. **#5:** `asrMs` is now stamped on every ASR outcome, so re-prompt turns no longer report `asr=0`.
+- **Validation:** ✅ `pio test -e native` 25/25 (`test_asr` covers `parseHost`); ✅ `pio run` SUCCESS. ⚠️ **The latency delta and the threaded TLS reuse must be measured on hardware** — the DoD's before/after numbers come from the board; the fresh-connect fallback equals the v1.3 behavior if the warm socket proves flaky.
+
 ## Notes
 
 - **Toolchain:** firmware is now **PlatformIO** (`pio run`, `pio run -t upload`, `pio test -e native`). espressif32 6.10.0 (arduino-esp32 2.x). Board profile `esp32-s3-devkitc-1` with AtomS3R USB flags; M5Unified detects the board at runtime.
 - **Hardware bring-up done with the user on a connected AtomS3R + Atomic Echo Base.** The headless environment can't press the button, hear the speaker, or reliably read the S3's USB-CDC serial — so the audio acceptance items were confirmed interactively (serial logs + listening). Pure logic (parsers/framing/SSE/audio math) is fully covered by `pio test -e native`.
 - **Benign log noise:** `[E] Wire.cpp:137 setPins(): bus already initialized` on each mic↔speaker switch (M5Unified re-touches the ES8311 I2C). No functional impact; the upstream example emits it too.
-- **Streaming deferred to v1.4:** a `ttsSpeak()` that streamed PCM chunks to the speaker (to remove the buffer cap) tore/underran on the single-threaded TLS-read + real-time-play path, and hit a keep-alive read timeout. Reverted to buffered playback (smooth); gapless long-reply playback needs a background audio task / ring buffer — a v1.4 item.
+- **Streaming TTS now targeted at v2.1:** a `ttsSpeak()` that streamed PCM chunks to the speaker (to remove the buffer cap) tore/underran on the single-threaded TLS-read + real-time-play path, and hit a keep-alive read timeout. Reverted to buffered playback (smooth). The latency analysis confirmed this needs the server to pace the audio stream — so sentence-streaming TTS + early playback (recs #3/#4) were moved to **v2.1** in the ROADMAP, not v1.4.
 - **TTS length is buffer-bounded:** spoken audio fits the ~5 s `REC_MAX_MS` buffer; the terse persona keeps replies short enough (observed 2.2–4.5 s), so no truncation in practice. The full reply text is always on serial regardless.
 - **Secrets:** `src/config.h` holds the user's real Wi-Fi / Anthropic / ElevenLabs / **Deepgram** keys and is gitignored; only `config.example.h` is committed. ElevenLabs keys must include the **`text_to_speech`** permission; Deepgram keys must allow `/v1/listen`.
 - **Stale-codec gotcha (v1.3):** after using the board for another project, the mic captured `peak=0` (ES8311 ADC left powered down). A **warm reflash didn't fix it; a cold USB power-cycle did**. Worth remembering for any audio bring-up.
 - **µ-law upload (v1.3):** the recorded PCM is encoded to 8-bit µ-law **in place** before the ASR POST — halves the upload, fixing Deepgram `408 SLOW_UPLOAD` on longer clips. Validated end-to-end via curl before firmware.
-- **Latency levers applied:** µ-law upload + TTS `eleven_turbo_v2_5`. Remaining (v1.4): streaming TTS playback + LLM→TTS clause pipelining; TLS handshakes to 3 hosts are an inherent floor.
-- **Character:** the default persona is now **Лілі** (authored canon; commit 979912f), with a short voice-format line so spoken replies fit the buffer. In v2 this canon moves server-side into the Role.
+- **Latency analysis (v1.3 instrumentation):** measured ASR ≈ **61 %** of post-speech latency, dominated by ~3 s fixed connection overhead (`ASR ≈ 3043 ms + 1.14 × clip_ms`). Levers applied: µ-law upload + TTS `eleven_turbo_v2_5` (v1.3), and the **ASR TLS pre-warm** (v1.4, PYR-017). Streaming ASR (#1) + sentence-streaming TTS / early playback (#3/#4) are scoped to **v2.1**.
+- **Character:** the default persona was reverted to **Піраміда** for v1 (commit 21770d6) — a terse Ukrainian helper that suits the firmware persona. The authored **Лілі** canon stays in the spec (EMOTION_FACE.md / Name+Canon) and moves server-side into the v2 `Role`.
 
 ## Next Steps
 
-- **Release v1.3 as `1.3.0`** (per `A.B.C`) — on explicit confirmation only.
-- **v1.4 (states/UX):** the last v1 phase — pause-based end-of-utterance (VAD bounded by `recog_patience`), richer LCD states, mid-turn Wi-Fi/timeout recovery, and the deferred **streaming TTS playback** (background audio task) for lower latency + uncapped reply length.
-- Then **v2** (server + Name/Canon + emoji face) per the updated ROADMAP.
+- **v1 is code-complete (PYR-004…017 all closed).** v1.4 would release as **`1.4.0`** (per `A.B.C`) — on explicit confirmation only.
+- **On-device check for v1.4** before release: flash, then verify LCD states through a turn, VAD pause-cutoff (`end=pause`) and threshold tuning, mid-turn recovery (pull Wi-Fi / stall a stage → clean Idle), and the **pre-warm latency delta** (compare `[latency]` ASR before/after; confirm re-prompt now shows `asr>0`).
+- Then **v2** — server proxy (WSS), Name/Canon `Role`, web console, closed access, emoji face — per the updated ROADMAP. The deferred streaming TTS lands there (v2.1).
