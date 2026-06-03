@@ -42,4 +42,15 @@ inline PcmStats analyzePcm(const std::int16_t* data, std::size_t n,
   return s;
 }
 
+// Whether a recording is worth sending to ASR (v1.3): long enough AND loud
+// enough. Filters silence and accidental button taps before any network call.
+// `peak` is from analyzePcm(); `minMs`/`minPeak` are config thresholds.
+inline bool shouldTranscribe(std::size_t samples, std::int16_t peak,
+                             std::uint32_t rate, std::uint32_t minMs,
+                             std::int16_t minPeak) {
+  if (samples < samplesForMs(minMs, rate)) return false;  // too short
+  if (peak < minPeak) return false;                        // too quiet (silence)
+  return true;
+}
+
 }  // namespace pyramid

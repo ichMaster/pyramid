@@ -569,9 +569,22 @@ void handleTurn(const std::string& userText) {
   }
 }
 
-// Voice turn (v1.3): transcribe the just-recorded audio (g_pcm) via ASR, then
-// run the same handleTurn() chain. asrTranscribe reads g_pcm before ttsFetch (in
-// handleTurn) overwrites it with the reply audio, so the shared buffer is safe.
+// Re-prompt (v1.3) when the input couldn't be used (silence / empty / low
+// confidence): speak a short nudge, or log it if TTS is unavailable.
+void rePrompt(const char* reason) {
+  logf("voice: %s — re-prompting", reason);
+  std::string terr;
+  if (ttsFetch("Не почула, повтори, будь ласка.", terr)) {
+    playbackCaptured();
+  } else {
+    logf("re-prompt tts failed (%s)", terr.c_str());
+    showStatus("idle");
+  }
+}
+
+// Voice turn (v1.3): gate the recording, transcribe via ASR, then run the same
+// handleTurn() chain. asrTranscribe reads g_pcm before ttsFetch (in handleTurn /
+// rePrompt) overwrites it with reply audio, so the shared buffer is safe.
 void voiceTurn() {
   if (g_pcmLen == 0) return;
   if (g_offline) {
@@ -579,12 +592,31 @@ void voiceTurn() {
     showStatus("idle");
     return;
   }
+  // Noise/length gate: skip silence and accidental taps before any network call.
+  const pyramid::PcmStats st = pyramid::analyzePcm(g_pcm, g_pcmLen, 32700);
+  if (!pyramid::shouldTranscribe(g_pcmLen, st.peak, AUDIO_SAMPLE_RATE, REC_MIN_MS,
+                                 REC_MIN_PEAK)) {
+    logf("voice: too short/quiet (%u samples, peak=%d) — ignored",
+         static_cast<unsigned>(g_pcmLen), static_cast<int>(st.peak));
+    showStatus("idle");
+    return;
+  }
+
   showStatus("thinking");  // transcribing
   std::string transcript, err;
   float confidence = 0.0f;
   if (!asrTranscribe(g_pcm, g_pcmLen, transcript, confidence, err)) {
-    logf("asr: %s", err.c_str());  // PYR-013 turns this into a re-prompt
-    showStatus("idle");
+    // Empty recognition → re-prompt; a hard error (http/timeout) just logs.
+    if (err.find("empty") != std::string::npos) {
+      rePrompt("empty transcript");
+    } else {
+      logf("asr: %s", err.c_str());
+      showStatus("error");
+    }
+    return;
+  }
+  if (confidence < ASR_MIN_CONFIDENCE) {
+    rePrompt("low confidence");
     return;
   }
   handleTurn(transcript);

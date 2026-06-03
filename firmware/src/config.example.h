@@ -91,3 +91,9 @@
 #define ASR_MODEL        "nova-2"
 #define ASR_LANG         "uk"
 #define ASR_SAMPLE_RATE  AUDIO_SAMPLE_RATE  // 16 kHz; matches capture
+
+// Robustness gates (v1.3): skip sending silence / accidental taps to ASR, and
+// re-prompt instead of answering noise.
+#define REC_MIN_MS         300    // ignore recordings shorter than this
+#define REC_MIN_PEAK       500    // ignore recordings quieter than this (|sample|)
+#define ASR_MIN_CONFIDENCE 0.30f  // below this, re-prompt instead of calling the LLM

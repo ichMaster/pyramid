@@ -10,6 +10,7 @@ using pyramid::analyzePcm;
 using pyramid::capSamples;
 using pyramid::PcmStats;
 using pyramid::samplesForMs;
+using pyramid::shouldTranscribe;
 
 #define CHECK(cond, msg) TEST_ASSERT_TRUE_MESSAGE((cond), (msg))
 
@@ -48,6 +49,14 @@ void test_all(void) {
     PcmStats s = analyzePcm(nullptr, 0, 32700);
     CHECK(s.peak == 0 && s.clipped == 0, "analyze: empty span");
   }
+
+  // shouldTranscribe: gate on duration AND level (16 kHz, min 300 ms, min peak 500).
+  // 300 ms @ 16 kHz = 4800 samples.
+  CHECK(shouldTranscribe(8000, 3000, 16000, 300, 500), "gate: long+loud -> yes");
+  CHECK(!shouldTranscribe(2000, 3000, 16000, 300, 500), "gate: too short -> no");
+  CHECK(!shouldTranscribe(8000, 100, 16000, 300, 500), "gate: too quiet -> no");
+  CHECK(shouldTranscribe(4800, 500, 16000, 300, 500), "gate: on both thresholds -> yes");
+  CHECK(!shouldTranscribe(0, 0, 16000, 300, 500), "gate: empty -> no");
 }
 
 int main() {
