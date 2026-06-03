@@ -1,6 +1,25 @@
 Pyramid -- Release Notes
 ========================
 
+Version 0.3.0 (2026-06-03)
+--------------------------
+v0 (Text chat over serial) is COMPLETE -- a typed line over USB serial gets a
+real LLM reply in Ukrainian, with short context and graceful failure handling.
+(Minor-bump-per-phase cadence; this marks v0 done.)
+
+- PYR-003 (v0.3) Quality and UX: a short rolling in-RAM conversation history
+  (HISTORY_MAX_TURNS, windowed to start with a user turn) is resent with each
+  request for context; the LLM call does a bounded retry with capped
+  exponential backoff on transient failures (transport / 429 / 5xx) and
+  surfaces a clear error line otherwise -- the loop never hangs; Wi-Fi loss
+  auto-recovers via non-blocking exponential backoff with input paused while
+  offline; the LCD shows idle / thinking / error / offline. Only successful
+  turns are committed to history. New pure, host-tested headers history.h and
+  backoff.h plus a retry classifier.
+- LLM switched to Anthropic: Claude via the Messages API (default
+  claude-haiku-4-5-20251001, config-selectable), replacing the
+  OpenAI-compatible client.
+
 Version 0.2.0 (2026-06-03)
 --------------------------
 Phase v0.2 milestone (minor-bump-per-phase cadence, not the v1-complete

@@ -1,6 +1,6 @@
 # Pyramid
 
-**Version 0.2.0** · A closed, private voice AI assistant on M5Stack hardware.
+**Version 0.3.0** · A closed, private voice AI assistant on M5Stack hardware.
 
 Pyramid is a self-tailored analog of [xiaozhi](https://github.com/78/xiaozhi-esp32):
 a living, configurable persona that runs on an **AtomS3R + Echo Base**, speaks
@@ -35,7 +35,7 @@ Complexity is added **only by version** — each ships standalone, built in orde
 
 | Version | Theme | Status |
 |---------|-------|--------|
-| **v0** | Text chat over serial — device ↔ cloud LLM directly, text over USB-CDC | **in progress** (v0.1–v0.2 done; v0.3 pending) |
+| **v0** | Text chat over serial — device ↔ cloud LLM directly, text over USB-CDC | **complete** (v0.1–v0.3) |
 | **v1** | Voice — I2S audio, push-to-talk; TTS first, then ASR; PlatformIO | planned |
 | **v2** | Server with role config — own backend (WSS/FastAPI), console, accounts, activation | planned |
 | **v3** | Memory, horoscope-temperament, MCP layer | planned |
@@ -48,13 +48,16 @@ specification/   # MISSION.md, ARCHITECTURE.md, ROADMAP.md + roadmap/implementat
                  # server/, mcp/, console/, tests/ are created as each version starts
 ```
 
-## Current state (v0.2)
+## Current state (v0 complete)
 
 The firmware boots the board, connects Wi-Fi, and turns the USB-CDC port into a
-line channel: a typed line becomes a `text_in` event, is sent to a cloud LLM
-over direct HTTPS (persona from config), and the reply is printed back — a full
-text chat in Ukrainian over serial. Status logging is gated by `DEBUG_SERIAL`.
-Rolling history and Wi-Fi auto-reconnect land in v0.3.
+line channel: a typed line becomes a `text_in` event, is sent (with a short
+rolling history) to **Claude** over direct HTTPS, and the reply is printed
+back — a full text chat in Ukrainian over serial. The loop is hardened with
+bounded retry + backoff on transient LLM failures, non-blocking Wi-Fi
+auto-reconnect (input paused while offline), and coarse LCD states. Status
+logging is gated by `DEBUG_SERIAL`. Next up is **v1 — Voice** (PlatformIO
+migration + I2S audio).
 
 Build and flash instructions are in [firmware/README.md](firmware/README.md).
 Quick host test of the pure serial logic:
