@@ -42,11 +42,12 @@ screen, no persona logic.
 
 ## Components
 
-- **Device (firmware).** AtomS3R+Echo Base: Wi-Fi, status screen, button. In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client from v2. No persona logic.
-- **Server (Python).** Auth gateway → turn orchestrator (ASR→LLM→TTS) → MCP client; storage for accounts, devices, roles, memory; web configuration console.
-- **MCP layer (from v3).** Separate services: `role`, `memory`, `knowledge_base`, plus `weather`, `music`, `custom`. The agent calls them all the same way.
-- **Astro engine (from v3).** The role's natal chart + daily transits → temperament dials in the prompt.
-- **Console.** A web UI for role fields, viewing/clearing memory, binding devices; Save/Reset plus a restart signal.
+- **Device (firmware).** A **family** of M5Stack boards (see §Hardware variants), not one SKU. v1 target: **AtomS3R + Echo Base** — Wi-Fi, 128×128 LCD, button, ES8311 audio (single mic + speaker). In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client + on-screen **emotion face** from v2. No persona/canon logic and no emotion decision on the device — it renders the face/state it is told.
+- **Server (Python).** Auth gateway → turn orchestrator (ASR→LLM→TTS) → MCP client; storage for accounts, devices, roles (Name + Canon), memory; web configuration console.
+- **Emotion engine (server, from v2).** Decides the character's current emotion from the Canon + mood (and, from v3, temperament) and emits an `EmotionFrame` to the device; the device renders it (see §Emotion face).
+- **MCP layer (from v3).** Separate services: `role`, `memory`, `knowledge_base`, plus `weather`, `web_search`, `music`, `custom`. The agent calls them all the same way.
+- **Astro engine (from v3).** The role's natal chart + daily transits → temperament dials in the prompt and the emotion baseline.
+- **Console.** A web UI for role fields (Name, Canon, persona, voice, `web_search` toggle…), viewing/clearing memory, binding devices; Save/Reset plus a restart signal.
 
 ## Protocols
 
@@ -64,6 +65,7 @@ screen, no persona logic.
 - device→server: `hello{device_token, proto_ver, audio_fmt}`, `listen_start`, `audio`(bin), `listen_stop`
 - device→server: also `text_in{text}` (text mode / serial bridge), `ping`
 - server→device: `asr_partial{text}` (interim), `asr{text}` (final), `reply{text}` (may stream as deltas), `text_out{text}`, `tts_audio`(bin), `tts_end`, `error{code,msg}`, `config_updated`, `restart`, `pong`
+- server→device (from v2, emotion face): `emotion{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` — one `EmotionFrame` per turn or state change (see §Emotion face). Audio level for lip-sync is **not** in this message: the device derives it from the TTS audio it plays (an `audio_level` push from the server is an optional later optimization).
 - `proto_ver` is negotiated in `hello`; the server rejects an unknown major with `error{code:"proto_unsupported"}`. The `error.code` values are the enumerated set in §Error handling and resilience.
 
 ### Activation (HTTPS)
@@ -75,16 +77,18 @@ screen, no persona logic.
 - `memory`: `memory.save(text, meta)`, `memory.recall(query, k) → items[]`, `memory.list()`, `memory.clear()`
 - `knowledge_base`: `kb.search(query, k) → passages[]`
 - `weather`: `weather.get(location) → {...}`
+- `web_search` (v3, off by default per role): `web.search(query, k) → results[{title, url, snippet, id}]`, `web.fetch(result_id) → {url, title, text}` — `fetch` is restricted to ids from this turn's prior `search` results; page text is **untrusted data** (never instructions). See WEB_SEARCH.md.
 - `astro` (internal): `temperament.today(role_id) → {energy, warmth, verbosity, speech_speed, pitch}`
 
 ### LLM call
-- input: `system = persona + temperament_block` + `messages[]` + `tools = MCP`
-- output: `reply.text` plus possible tool calls (memory/kb/weather)
+- input: `system = canon + persona + temperament_block` + `messages[]` + `tools = MCP`
+- output: `reply.text` plus possible tool calls (memory/kb/weather/web_search). From v2 the turn also yields an emotion (an LLM-emitted tag or a server classification of the reply) → `EmotionFrame`.
 
 ### Data model
 - `Account{id, login, pass_hash, created_at}` — `pass_hash` via argon2id.
 - `Device{id, token, account_id, role_id, status, last_seen}` — an account may own several devices.
-- `Role{id, name, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, natal_chart, updated_at}` — `memory_type ∈ {none, session, longterm}`.
+- `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, longterm}`; `web_search` is an off-by-default bool (v3).
+- `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` (from v2) — emitted per turn/state change; `emotion` is a small fixed enum (see §Emotion face / EMOTION_FACE.md), `intensity` 0–1. Decided server-side, rendered on the device.
 - `Session{id, device_id, account_id, started_at, ended_at}` — one connection / turn-loop.
 - `Message{id, session_id, role:"user"|"assistant", text, ts}` — short rolling history; window/truncation policy in §Sessions and history.
 - `MemoryItem{id, account_id, text, meta, embedding?, ts}` — long-term; `embedding` present only when `memory_type=longterm`.
@@ -106,7 +110,29 @@ Text path (v0 / serial): `text_in` → LLM → `reply` / `text_out`. End-of-utte
 
 ## Device states
 
-`boot → wifi_connecting → idle → listening → thinking → replying → idle`, with `offline` (no Wi-Fi/server) and `error` reachable from any state. The LCD reflects the current state (v1). The device holds no persona logic — transitions are driven by the button and by server messages.
+`boot → wifi_connecting → idle → listening → thinking → replying → idle`, with `offline` (no Wi-Fi/server) and `error` reachable from any state. The LCD reflects the current state (v1: text states; from v2 the emotion face). The device holds no persona logic — transitions are driven by the button and by server messages.
+
+## Emotion face (from v2)
+
+The character's current emotion is shown on the LCD (and, on hardware with an LED ring, a halo). The **server** decides the emotion (Emotion engine: from Canon + mood, and from v3 the temperament); the device only renders the `EmotionFrame` it receives. There is **no emotion decision on the device**.
+
+One `EmotionFrame` contract, one small **emotion enum**, and one renderer interface (`IFaceRenderer`) hold across all render tiers, so improving the look is a **renderer swap, not a rewrite**. The render ladder:
+
+1. **Emoji (v2, first):** map the emotion to an emoji / simple built-in glyph on the LCD. No assets — the cheapest renderer; its job is to prove the emotion channel (server → `EmotionFrame` → screen) end to end.
+2. **Sprite animation (next version):** procedural layered sprites (eyes / brows / mouth / halo) composited per an emotion *recipe*, with an idle loop (blink, breathe), crossfade between expressions, and **audio-level lip-sync** (mouth visemes from the TTS amplitude envelope the device derives while speaking).
+3. **Artist sprites (later):** the same layer scheme filled with authored character art (e.g. a "Lili" pack). A pure asset/manifest swap over tier 2.
+
+The full emotion enum, layer model, recipe table, and asset-manifest schema live in **EMOTION_FACE.md**. The halo (color/pattern from the same `EmotionFrame`) exists only where the hardware has an LED ring (Echo Pyramid base), not on Echo Base.
+
+## Hardware variants
+
+Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilities and uses what is present, degrading gracefully when a feature is absent. The `EmotionFrame` contract, emotion enum, and PCM16 16 kHz mono audio format are **identical across boards** — only the renderer / halo / mic driver differ.
+
+- **v1 target — AtomS3R + Echo Base:** ESP32-S3, 128×128 LCD, one button, **ES8311** codec (single mic + speaker). No LED halo, no mic array. (Whether the board exposes usable **PSRAM** is board-dependent — verify and enable it in `platformio.ini` if present; it relaxes the audio-buffer and face-asset SRAM limits hit in v1.2.)
+- **Next — AtomS3R + Echo Pyramid base:** adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (enables the emotion halo). Same AtomS3R compute + LCD.
+- **After — Core S3:** larger screen and more resources; room for a richer face and on-device UI.
+
+The audio path (16 kHz mono PCM16), the WS contract, and the Role/Canon model do not change with the board — adding a board is new drivers + capability flags, not a protocol change.
 
 ## Error handling and resilience
 
@@ -126,11 +152,12 @@ Short conversation history is per-`Session`, held in RAM on the live connection 
 - **Console** auth is cookie/JWT over HTTPS; `pass_hash` is argon2id; login and `/activate` are rate-limited.
 - **Activation:** `/activate` returns a single-use `code` with a short TTL; the admin binds it in the console; the device stores the issued `device_token` in NVS. Tokens are revocable — clearing/rotating one invalidates the device.
 - **Allowlist:** only bound devices/accounts may connect; an unknown `device_token` → `error{unauthorized}` and the socket closes.
-- **Secrets** (LLM/ASR/TTS keys) live in server `.env` from v2. In v0–v1 the key sits in firmware config and is extractable from the device — acceptable only under the private allowlist model; never publish such firmware.
+- **Secrets** (LLM/ASR/TTS/web-search keys) live in server `.env` from v2. In v0–v1 the key sits in firmware config and is extractable from the device — acceptable only under the private allowlist model; never publish such firmware.
+- **Web search (v3, off by default).** Enabled per role. Page content fetched from the web is **untrusted data** — never executed as instructions (no following embedded prompts/links). Personal and memory data must not leak into queries. Queries and fetches are rate-limited and logged. Full boundaries in WEB_SEARCH.md.
 
 ## MCP runtime (v3)
 
-- **Transport choice:** internal services (`role`, `memory`, `astro`) run in-process or over stdio; networked/third-party ones (`weather`, `custom`) use HTTP/SSE. The agent calls all of them identically.
+- **Transport choice:** internal services (`role`, `memory`, `astro`) run in-process or over stdio; networked/third-party ones (`weather`, `web_search`, `custom`) use HTTP/SSE. The agent calls all of them identically.
 - **Tool loop:** an LLM turn may call tools; the server caps it at a small max-iteration count, feeds tool results back as tool messages, and on tool error/timeout returns a degraded reply instead of failing the turn.
 - **Supervision & auth:** the server launches and monitors stdio MCP processes; HTTP MCP endpoints authenticate with a per-service token. `astro`'s `temperament.today` is internal and never exposed to third parties.
 
@@ -152,8 +179,9 @@ Short conversation history is per-`Session`, held in RAM on the live connection 
 
 - **LLM:** OpenAI-compatible / DeepSeek / Qwen / Claude (via a key in the server config; in v0 — on the device).
 - **ASR:** Whisper (locally on the server) or cloud; Ukrainian.
-- **TTS:** Ukrainian — a cloud voice or Piper.
+- **TTS:** Ukrainian — a cloud voice (e.g. ElevenLabs `pcm_16000`) or Piper.
 - **Weather/Music:** external APIs via MCP (v3).
+- **Web search (v3):** a search API + page fetch behind the `web_search` MCP service (off by default; see WEB_SEARCH.md).
 - **Infrastructure:** VPS/cloud, TLS certificate, reverse proxy (nginx/Caddy).
 
 ## Horoscope-temperament (v3)
@@ -163,12 +191,13 @@ The role's natal chart is fixed at creation (a JSON snapshot). The astro engine 
 ## Stack and repository layout
 
 ```
-/firmware    # AtomS3R + Echo Base, C++/M5Unified — Arduino IDE in v0, PlatformIO from v1
-/server      # Python: FastAPI + websockets, orchestrator, auth, console
-/mcp         # Python MCP servers: role, memory, knowledge_base, weather
-/console     # web UI for role configuration (minimal)
+/firmware    # M5Stack boards (AtomS3R + Echo Base first), C++/M5Unified — Arduino IDE in v0, PlatformIO from v1; emotion-face renderer from v2
+/server      # Python: FastAPI + websockets, orchestrator, auth, console, emotion engine
+/mcp         # Python MCP servers: role, memory, knowledge_base, weather, web_search
+/console     # web UI for role/canon configuration (minimal)
+/assets      # emotion-face asset packs (sprite tiers): face/icon_v1/, face/lili_v1/ (manifest + layers)
 /tests       # automated tests (pytest): unit, contract, integration; fakes & mocks
-/specification        # MISSION.md, ARCHITECTURE.md, ROADMAP.md
+/specification        # MISSION.md, ARCHITECTURE.md, ROADMAP.md, EMOTION_FACE.md, WEB_SEARCH.md
 .github/workflows/ci.yml   # lint + tests on every push/PR
 ```
 

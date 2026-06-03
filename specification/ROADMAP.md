@@ -120,7 +120,7 @@ Add pause-based end-of-utterance so the user need not time the button perfectly,
 
 ## v2 — Server with role configuration
 
-Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. Persona and voice become a configurable **Role** edited in a web console, and access is closed: accounts, device activation by code, and an allowlist. Depends on: v1 (the audio + turn loop move from the device to the server).
+Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. The character becomes a configurable **Role** — including its **Name** and authored **Canon** — edited in a web console, and the device gains its first **emotion face** (emoji tier) driven by the server. Access is closed: accounts, device activation by code, and an allowlist. Depends on: v1 (the audio + turn loop move from the device to the server).
 
 ### v2.1 — Server proxy
 
@@ -137,19 +137,20 @@ A FastAPI + websockets server terminates a single duplex WSS channel and runs th
 
 **DoD:** the device runs end-to-end through our server, with the same voice experience as v1.
 
-### v2.2 — Role config
+### v2.2 — Role, Name & Canon
 
-**Goal:** the assistant has a configurable character and voice.
+**Goal:** the assistant is a configurable, named character with an authored canon.
 
-Introduce the `Role` model and build the system prompt from it; the role also selects the LLM and the voice parameters.
+Introduce the `Role` model and build the system prompt from it. The role carries the character's **Name** and an authored **Canon** (a character bible — lore, traits, behavioral rules), plus persona, LLM choice, and voice parameters. Canon is hand-written content, not a facet engine (MISSION non-goal).
 
 **Tasks:**
-- Define `Role{name, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model).
-- Assemble the system prompt from the persona; pass voice params to TTS and `recog_patience` to end-of-utterance.
+- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model).
+- Assemble the system prompt from **canon + persona**; pass voice params to TTS and `recog_patience` to end-of-utterance.
 - Keep short in-session history (per `Session`) and feed it to the LLM with windowing.
 - Allow LLM selection per role; load the active role at connection time.
+- Author Name + Canon in the console (next phase) — the canon is the single source of the character's identity.
 
-**DoD:** changing the role visibly changes the assistant's behavior and voice.
+**DoD:** changing the role (incl. Name and Canon) visibly changes the assistant's identity, behavior, and voice.
 
 ### v2.3 — Web console
 
@@ -178,6 +179,20 @@ Deploy behind TLS, add console login, bind devices by activation code, and rejec
 - Enforce the allowlist: unknown `device_token` → `error{unauthorized}` and the socket closes; support token revocation.
 
 **DoD:** only authorized devices and users have access; an unbound device is rejected.
+
+### v2.5 — Emotion channel + emoji face
+
+**Goal:** the character shows how it feels — a first on-screen emotion face, decided by the server.
+
+The server's **emotion engine** classifies the turn's emotion (an LLM-emitted tag or a server classification of the reply, from the Canon + mood) and sends an `EmotionFrame` to the device; the device renders it as an **emoji / simple glyph** on the LCD. This is the cheapest renderer in the ladder — its job is to prove the emotion channel end to end. The contract and emotion enum are locked here so later sprite tiers are a renderer swap. No on-device emotion decision (intelligence off-device).
+
+**Tasks:**
+- Define the emotion enum + `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` and add the `emotion` WS message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**.
+- Server: derive the emotion per turn (from canon + reply); emit one `EmotionFrame` per turn / state change; relax to neutral after `ttl_ms`.
+- Device: `EmojiRenderer` behind an `IFaceRenderer` interface — map emotion → emoji/glyph on the 128×128 LCD; idle/neutral when no frame.
+- Keep it Echo-Base-only (no halo); the halo and sprite tiers come later (see EMOTION_FACE.md).
+
+**DoD:** the face on the screen reflects the assistant's emotion each turn, driven by the server; emotion never alters competence.
 
 ---
 
@@ -223,9 +238,10 @@ Fix a natal chart on the role; an astro engine computes daily transits into temp
 - Add a fixed `natal_chart` (JSON snapshot) to the role at creation.
 - Build the astro engine (**skyfield**): once per local day, compute transits → dials (energy, warmth, verbosity, speech speed, pitch), each bounded; cache per day.
 - Inject a temperament block into the system prompt and map the dials onto TTS pitch/speed.
+- Bias the **emotion baseline** by temperament (e.g. higher warmth → more `warm`/`affection`; higher energy → brighter) so the face shifts with the day — colouring presentation only.
 - Isolate from competence: dials never change willingness or correctness; expose `temperament.today(role_id)` internally.
 
-**DoD:** tone and voice noticeably differ across days without degrading answer quality.
+**DoD:** tone, voice, and the emotion face noticeably differ across days without degrading answer quality.
 
 ### v3.4 — Persona integration
 
@@ -241,6 +257,34 @@ Combine the role canon, the day's temperament, recalled memory, and MCP results 
 
 **DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
 
+### v3.5 — Web search (optional)
+
+**Goal:** the assistant can look things up on the open internet, within strict bounds.
+
+A `web_search` MCP service lets the agent answer from fresh web results when a role allows it — off by default, treated as untrusted data, and kept clear of personal/memory information. Full boundaries in WEB_SEARCH.md.
+
+**Tasks:**
+- Add a `web_search` MCP service: `web.search(query, k) → results[]` and `web.fetch(result_id) → page`, with `fetch` limited to ids from this turn's prior `search` results.
+- Per-role toggle in the console (`Role.web_search`), **off by default**.
+- Treat page content as **untrusted data** — never follow embedded instructions/links.
+- Keep personal/memory data out of queries; rate-limit and log searches and fetches.
+
+**DoD:** when enabled, the assistant answers from fresh web results **with sources**; when disabled, it has no internet access beyond the LLM's own knowledge.
+
+### v3.6 — Sprite face (animation)
+
+**Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
+
+Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
+
+**Tasks:**
+- Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
+- Idle loop (blink, breathe, micro gaze drift), ~150–250 ms crossfade, intensity-scaled expressiveness.
+- Lip-sync: derive an amplitude envelope from playback (RMS) → mouth visemes while `speaking`.
+- On Echo Pyramid base hardware, drive the LED halo from the same `EmotionFrame`. (Artist "Lili" sprite pack: a later asset-only swap.)
+
+**DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
+
 ---
 
 ## Mapping of protocols and contracts
@@ -250,8 +294,15 @@ Combine the role canon, the day's temperament, recalled memory, and MCP results 
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.4.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
+- `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - Temperament contract (`temperament.today`) — v3.3.
+- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the sprite face — v3.6.
+- Name + Canon in the `Role` — v2.2.
+
+## Hardware roadmap
+
+The device is a family, not one SKU (ARCHITECTURE §Hardware variants): **v1 → AtomS3R + Echo Base** (ES8311 audio, 128×128 LCD; no halo/mic-array). Later targets — **AtomS3R + Echo Pyramid base** (adds a mic array + AEC and a WS2812 halo) and **Core S3** (larger screen/resources) — add capabilities the firmware detects and uses when present. The audio format, WS contract, Role/Canon, and `EmotionFrame` are identical across boards.
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, multi-board support, role templates and AI Optimize, on-screen emotion engine.
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, and **web search** are no longer deferred — they are scheduled: face emoji v2.5 / sprite v3.6, boards per the Hardware roadmap, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
