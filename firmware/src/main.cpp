@@ -38,6 +38,7 @@
 #include "line_reader.h"
 #include "serial_protocol.h"
 #include "sse.h"
+#include "timing.h"
 #include "tts_api.h"
 #include "ulaw.h"
 
@@ -73,6 +74,13 @@ constexpr size_t kMaxSamples =
     pyramid::samplesForMs(REC_MAX_MS, AUDIO_SAMPLE_RATE);
 int16_t g_pcm[kMaxSamples];
 size_t g_pcmLen = 0;  // valid samples captured in the last push-to-talk
+
+// Push-to-talk latency tracking (button press -> first spoken audio). Stamped
+// across the voice path (loop -> voiceTurn -> handleTurn -> playbackCaptured)
+// and reported when playback starts. g_voiceActive scopes it to the button
+// path so the serial text path doesn't emit (or pollute) a latency line.
+pyramid::VoiceStamps g_stamps;
+bool g_voiceActive = false;
 
 // All status logging routes through here and is gated by DEBUG_SERIAL, so the
 // device can be quietened later without touching call sites.
@@ -199,7 +207,18 @@ void playbackCaptured() {
     return;
   }
   M5.Speaker.setVolume(SPK_VOLUME);
+  g_stamps.speakMs = millis();  // audio starts here — the moment the user hears a reply
   M5.Speaker.playRaw(g_pcm, g_pcmLen, AUDIO_SAMPLE_RATE);  // mono PCM16
+  if (g_voiceActive) {
+    const pyramid::LatencyBreakdown b = pyramid::computeLatency(g_stamps);
+    Serial.printf(
+        "[latency] press->speak=%lu ms (speech=%lu ms; reply=%lu ms = asr %lu + llm %lu + tts %lu + other %lu)\n",
+        static_cast<unsigned long>(b.total), static_cast<unsigned long>(b.speech),
+        static_cast<unsigned long>(b.total - b.speech), static_cast<unsigned long>(b.asr),
+        static_cast<unsigned long>(b.llm), static_cast<unsigned long>(b.tts),
+        static_cast<unsigned long>(b.other));
+    g_voiceActive = false;  // consumed; next press re-arms it
+  }
   while (M5.Speaker.isPlaying()) {
     M5.update();
     delay(1);
@@ -564,6 +583,7 @@ void handleTurn(const std::string& userText) {
   const uint32_t turnStart = millis();
   const Attempt a = llmTurn(req);  // reply streams to serial inside
   const uint32_t allMs = millis() - turnStart;
+  if (g_voiceActive) g_stamps.llmMs = allMs;  // for the press->speak breakdown
 
   if (a.ok) {
     Serial.printf(
@@ -574,7 +594,10 @@ void handleTurn(const std::string& userText) {
     g_history.addAssistant(a.reply);
     showStatus("speaking");
     std::string terr;
-    if (ttsFetch(a.reply, terr)) {
+    const uint32_t ttsStart = millis();
+    const bool spoke = ttsFetch(a.reply, terr);
+    if (g_voiceActive) g_stamps.ttsMs = millis() - ttsStart;
+    if (spoke) {
       playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
     } else {
       logf("tts failed (%s) — reply shown as text only", terr.c_str());
@@ -594,7 +617,10 @@ void handleTurn(const std::string& userText) {
 void rePrompt(const char* reason) {
   logf("voice: %s — re-prompting", reason);
   std::string terr;
-  if (ttsFetch("Не почула, повтори, будь ласка.", terr)) {
+  const uint32_t ttsStart = millis();
+  const bool spoke = ttsFetch("Не почула, повтори, будь ласка.", terr);
+  if (g_voiceActive) g_stamps.ttsMs = millis() - ttsStart;
+  if (spoke) {
     playbackCaptured();
   } else {
     logf("re-prompt tts failed (%s)", terr.c_str());
@@ -625,10 +651,12 @@ void voiceTurn() {
   showStatus("thinking");  // transcribing
   std::string transcript, err;
   float confidence = 0.0f;
+  const uint32_t asrStart = millis();
   if (!asrTranscribe(g_pcm, g_pcmLen, transcript, confidence, err)) {
     rePrompt(err.c_str());  // empty / 408 after retries / timeout → spoken nudge
     return;
   }
+  if (g_voiceActive) g_stamps.asrMs = millis() - asrStart;
   if (confidence < ASR_MIN_CONFIDENCE) {
     rePrompt("low confidence");
     return;
@@ -680,8 +708,12 @@ void loop() {
 
   // Push-to-talk (v1.3): hold BtnA to record, release to speak the answer.
   if (M5.BtnA.isPressed()) {
-    recordWhileHeld();  // captures into g_pcm, returns on release
-    voiceTurn();        // ASR(g_pcm) → LLM → TTS → speaker
+    g_stamps = pyramid::VoiceStamps{};  // re-arm latency tracking for this turn
+    g_voiceActive = true;
+    g_stamps.pressMs = millis();  // t0: button pressed
+    recordWhileHeld();            // captures into g_pcm, returns on release
+    g_stamps.recEndMs = millis();  // button released (end of speech)
+    voiceTurn();                   // ASR(g_pcm) → LLM → TTS → speaker
   }
 
   delay(5);
