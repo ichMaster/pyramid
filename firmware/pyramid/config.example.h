@@ -41,3 +41,9 @@
 #define LLM_PERSONA \
   "Ти — дружній голосовий помічник на ім'я Піраміда. " \
   "Відповідай українською мовою, коротко, тепло і по суті."
+
+// --- Conversation history (v0.3) --------------------------------------------
+// How many past turns (user/assistant messages) to keep in RAM and resend with
+// each request, for short-term context. Larger = more context, more tokens.
+// History is per-session only; nothing is persisted on the device.
+#define HISTORY_MAX_TURNS 8

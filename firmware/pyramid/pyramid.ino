@@ -1,12 +1,14 @@
 // Pyramid — M5Stack Voice AI Chatbot.
-// v0.2 (PYR-002): text chat loop.
+// v0.3 (PYR-003): quality and UX.
 //
 // Boots the AtomS3R + Echo Base, brings up Wi-Fi from config.h, and turns the
 // USB-CDC port into a line-oriented text channel: a typed line becomes a
-// `text_in` event, is sent to a cloud LLM over direct HTTPS (persona from
-// config), and the model's reply is printed back. All status logging goes
-// through logf(), gated by DEBUG_SERIAL. The device stays thin — the persona
-// lives in config, not in logic; no memory/decisions on-device.
+// `text_in` event, is sent (with a short rolling history) to a cloud LLM over
+// direct HTTPS, and the model's reply is printed back. The loop is hardened:
+// bounded retry on transient LLM failures, non-blocking Wi-Fi reconnect with
+// exponential backoff (input paused while offline), and coarse LCD states. All
+// status logging goes through logf(), gated by DEBUG_SERIAL. The device stays
+// thin — persona + history shape the request, but no decisions live on-device.
 //
 // Build/flash: Arduino IDE (board "M5AtomS3R", M5Unified + ArduinoJson) or
 //   arduino-cli compile --fqbn m5stack:esp32:m5stack_atoms3r firmware/pyramid
@@ -20,9 +22,12 @@
 #include <cstdarg>
 #include <cstdio>
 #include <string>
+#include <vector>
 
+#include "backoff.h"
 #include "chat_api.h"
 #include "config.h"
+#include "history.h"
 #include "line_reader.h"
 #include "serial_protocol.h"
 
@@ -33,7 +38,22 @@ constexpr uint32_t kWifiTimeoutMs = 20000;
 constexpr uint32_t kHttpConnectMs = 8000;
 constexpr uint32_t kHttpReadMs = 15000;
 
+// Bounded retry for transient LLM failures (transport / 429 / 5xx).
+constexpr int kMaxRetries = 2;
+constexpr uint32_t kRetryBaseMs = 500;
+constexpr uint32_t kRetryCapMs = 4000;
+
+// Wi-Fi reconnect backoff (ARCHITECTURE §Error handling: ~0.5 -> 8 s).
+constexpr uint32_t kWifiBackoffBaseMs = 500;
+constexpr uint32_t kWifiBackoffCapMs = 8000;
+
 pyramid::LineReader g_reader;
+pyramid::History g_history(HISTORY_MAX_TURNS);
+
+// Wi-Fi reconnect state (non-blocking).
+bool g_offline = false;
+int g_wifiAttempt = 0;
+uint32_t g_nextWifiTryMs = 0;
 
 // All status logging routes through here and is gated by DEBUG_SERIAL, so the
 // device can be quietened later without touching call sites.
@@ -48,7 +68,8 @@ void logf(const char* fmt, ...) {
   Serial.println(line);
 }
 
-// Coarse status line on the LCD (full state machine lands in v1.4).
+// Coarse turn state on the LCD: idle / thinking / error / offline (the full
+// state machine lands in v1.4).
 void showStatus(const char* s) {
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setCursor(0, 0);
@@ -64,24 +85,61 @@ bool connectWiFi() {
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - start > kWifiTimeoutMs) {
-      logf("wifi: connect timeout");
-      showStatus("wifi FAIL");
-      return false;  // auto-reconnect/backoff arrives in v0.3 (PYR-003)
+      logf("wifi: connect timeout (will retry in loop)");
+      showStatus("offline");
+      return false;
     }
     delay(250);
   }
   logf("wifi: connected, ip=%s", WiFi.localIP().toString().c_str());
-  showStatus("wifi OK");
+  showStatus("idle");
   return true;
 }
 
-// One synchronous chat turn: POST the persona + user text to the LLM over
-// HTTPS and read back the reply. Returns true and sets `reply` on success;
-// returns false and sets `err` (a readable line) on any transport / HTTP /
-// JSON failure, so the caller never hangs or crashes the loop. One turn at a
-// time — streaming and history come later (v0.3 / v1).
-bool llmTurn(const std::string& userText, std::string& reply,
-             std::string& err) {
+// Non-blocking Wi-Fi supervisor: tracks offline state and reconnects with
+// exponential backoff. Called every loop tick; input is paused while offline.
+void serviceWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (g_offline) {
+      g_offline = false;
+      g_wifiAttempt = 0;
+      logf("wifi: reconnected, ip=%s", WiFi.localIP().toString().c_str());
+      showStatus("idle");
+    }
+    return;
+  }
+
+  if (!g_offline) {
+    g_offline = true;
+    logf("wifi: connection lost — pausing input");
+    showStatus("offline");
+  }
+
+  const uint32_t now = millis();
+  if (now >= g_nextWifiTryMs) {
+    const uint32_t wait =
+        pyramid::backoffDelayMs(g_wifiAttempt, kWifiBackoffBaseMs, kWifiBackoffCapMs);
+    logf("wifi: reconnect attempt %d (next backoff %u ms)", g_wifiAttempt + 1,
+         static_cast<unsigned>(wait));
+    WiFi.reconnect();
+    g_nextWifiTryMs = now + wait;
+    ++g_wifiAttempt;
+  }
+}
+
+// Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
+// hint on whether retrying is worthwhile.
+struct Attempt {
+  bool ok = false;
+  bool retryable = false;
+  std::string reply;
+  std::string err;
+};
+
+// One synchronous HTTPS attempt: POST persona + history to the LLM and read
+// back the reply. Never hangs — connect/read timeouts are bounded.
+Attempt llmAttempt(const std::vector<pyramid::Turn>& turns) {
+  Attempt r;
   WiFiClientSecure client;
   client.setInsecure();  // v0: no cert pinning under the private allowlist model
 
@@ -89,22 +147,23 @@ bool llmTurn(const std::string& userText, std::string& reply,
   http.setConnectTimeout(kHttpConnectMs);
   http.setTimeout(kHttpReadMs);
   if (!http.begin(client, LLM_ENDPOINT)) {
-    err = "http begin failed";
-    return false;
+    r.err = "http begin failed";
+    return r;
   }
   http.addHeader("content-type", "application/json");
   http.addHeader("x-api-key", LLM_API_KEY);
   http.addHeader("anthropic-version", LLM_ANTHROPIC_VERSION);
 
-  const std::string body = pyramid::buildChatRequest(
-      LLM_MODEL, LLM_PERSONA, userText, LLM_MAX_TOKENS);
+  const std::string body =
+      pyramid::buildChatRequest(LLM_MODEL, LLM_PERSONA, turns, LLM_MAX_TOKENS);
   const int status = http.POST(String(body.c_str()));
 
   if (status <= 0) {
-    err = std::string("transport error: ") +
-          HTTPClient::errorToString(status).c_str();
+    r.err = std::string("transport error: ") +
+            HTTPClient::errorToString(status).c_str();
+    r.retryable = true;  // transport-level: worth a retry
     http.end();
-    return false;
+    return r;
   }
 
   const String payload = http.getString();
@@ -112,14 +171,38 @@ bool llmTurn(const std::string& userText, std::string& reply,
 
   if (status < 200 || status >= 300) {
     std::string discard, perr;
-    // Prefer the API's own error message if the body carries one.
     pyramid::parseChatReply(payload.c_str(), discard, perr);
-    err = "http " + std::to_string(status) +
-          (perr.empty() ? "" : ": " + perr);
-    return false;
+    r.err = "http " + std::to_string(status) + (perr.empty() ? "" : ": " + perr);
+    r.retryable = pyramid::isRetryableHttpStatus(status);
+    return r;
   }
 
-  return pyramid::parseChatReply(payload.c_str(), reply, err);
+  r.ok = pyramid::parseChatReply(payload.c_str(), r.reply, r.err);
+  return r;  // a 2xx that won't parse is not retryable (r.retryable stays false)
+}
+
+// A full chat turn with bounded retry + backoff. Returns true and sets `reply`
+// on success; false and sets `err` (a readable line) once retries are spent.
+bool llmTurn(const std::vector<pyramid::Turn>& turns, std::string& reply,
+             std::string& err) {
+  Attempt a;
+  for (int i = 0; i <= kMaxRetries; ++i) {
+    if (i > 0) {
+      const uint32_t wait =
+          pyramid::backoffDelayMs(i - 1, kRetryBaseMs, kRetryCapMs);
+      logf("llm: retry %d/%d in %u ms (%s)", i, kMaxRetries,
+           static_cast<unsigned>(wait), a.err.c_str());
+      delay(wait);
+    }
+    a = llmAttempt(turns);
+    if (a.ok) {
+      reply = a.reply;
+      return true;
+    }
+    if (!a.retryable) break;
+  }
+  err = a.err;
+  return false;
 }
 
 }  // namespace
@@ -133,7 +216,7 @@ void setup() {
   const uint32_t t0 = millis();
   while (!Serial && millis() - t0 < 2000) delay(10);  // let USB-CDC enumerate
 
-  Serial.println("Pyramid v0.2 -- text chat loop");
+  Serial.println("Pyramid v0.3 -- quality and UX");
   showStatus("boot");
 
   connectWiFi();
@@ -143,6 +226,7 @@ void setup() {
 
 void loop() {
   M5.update();
+  serviceWiFi();
 
   // Non-blocking: drain whatever bytes arrived this tick through the reader.
   while (Serial.available() > 0) {
@@ -152,20 +236,28 @@ void loop() {
       pyramid::TextIn ev;
       if (pyramid::parseTextIn(line, ev)) {
         logf("text_in: \"%s\"", ev.text.c_str());
-        if (WiFi.status() != WL_CONNECTED) {
-          // Wi-Fi auto-reconnect/backoff lands in v0.3 (PYR-003).
-          Serial.println("error: offline (no wifi)");
+        if (g_offline) {
+          Serial.println("offline: input paused (reconnecting)");
+          continue;
+        }
+        logf("thinking...");
+        showStatus("thinking");
+
+        // Build the request from history + the pending user turn; commit to
+        // history only on success so a failed call can't poison the context.
+        std::vector<pyramid::Turn> req = g_history.turns();
+        req.push_back(pyramid::Turn{"user", ev.text});
+
+        std::string reply, err;
+        if (llmTurn(req, reply, err)) {
+          Serial.println(reply.c_str());
+          g_history.addUser(ev.text);
+          g_history.addAssistant(reply);
+          showStatus("idle");
         } else {
-          logf("thinking...");
-          showStatus("thinking");
-          std::string reply, err;
-          if (llmTurn(ev.text, reply, err)) {
-            Serial.println(reply.c_str());
-          } else {
-            Serial.print("error: ");
-            Serial.println(err.c_str());
-          }
-          showStatus("wifi OK");
+          Serial.print("error: ");
+          Serial.println(err.c_str());
+          showStatus("error");
         }
       }
     }

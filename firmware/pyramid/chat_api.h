@@ -13,19 +13,24 @@
 // (PYR-003). Requires ArduinoJson v7 (header-only, compiles on host too).
 
 #include <string>
+#include <vector>
 
 #include <ArduinoJson.h>
+
+#include "history.h"
 
 namespace pyramid {
 
 // Build the Messages API request body:
 //   {"model": <model>, "max_tokens": <maxTokens>, "system": <persona>,
-//    "messages": [{"role":"user","content":<userText>}]}
-// The persona is a top-level `system` field (not a message). ArduinoJson
-// handles all escaping and passes UTF-8 (Ukrainian) through as raw bytes.
+//    "messages": [{"role": <turn.role>, "content": <turn.content>}, ...]}
+// The persona is a top-level `system` field (not a message); `turns` carries
+// the windowed conversation history (v0.3) and must start with a user turn and
+// alternate. ArduinoJson handles all escaping and passes UTF-8 (Ukrainian)
+// through as raw bytes.
 inline std::string buildChatRequest(const std::string& model,
                                     const std::string& persona,
-                                    const std::string& userText,
+                                    const std::vector<Turn>& turns,
                                     int maxTokens) {
   JsonDocument doc;
   doc["model"] = model;
@@ -33,13 +38,21 @@ inline std::string buildChatRequest(const std::string& model,
   doc["system"] = persona;
   JsonArray messages = doc["messages"].to<JsonArray>();
 
-  JsonObject usr = messages.add<JsonObject>();
-  usr["role"] = "user";
-  usr["content"] = userText;
+  for (const Turn& t : turns) {
+    JsonObject m = messages.add<JsonObject>();
+    m["role"] = t.role;
+    m["content"] = t.content;
+  }
 
   std::string out;
   serializeJson(doc, out);
   return out;
+}
+
+// Whether an HTTP status from the LLM call is worth a bounded retry: 429
+// (rate-limited) and 5xx (server) are transient; 4xx (client/auth) are not.
+inline bool isRetryableHttpStatus(int status) {
+  return status == 429 || (status >= 500 && status < 600);
 }
 
 // Parse a Messages API response. On success sets `reply` to the text of the

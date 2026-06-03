@@ -9,13 +9,16 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <ArduinoJson.h>
 
 #include "chat_api.h"
 
 using pyramid::buildChatRequest;
+using pyramid::isRetryableHttpStatus;
 using pyramid::parseChatReply;
+using pyramid::Turn;
 
 static int g_failures = 0;
 
@@ -29,10 +32,11 @@ static int g_failures = 0;
 
 int main() {
   // 1. buildChatRequest emits valid JSON: model + max_tokens + top-level
-  //    system(persona) + a single user message (Anthropic Messages shape).
+  //    system(persona) + the history turns (Anthropic Messages shape).
   {
+    std::vector<Turn> turns = {{"user", "hello"}};
     std::string body =
-        buildChatRequest("claude-haiku-4-5-20251001", "Be kind.", "hello", 1024);
+        buildChatRequest("claude-haiku-4-5-20251001", "Be kind.", turns, 1024);
     JsonDocument doc;
     CHECK(!deserializeJson(doc, body), "build: valid JSON");
     CHECK(doc["model"] == "claude-haiku-4-5-20251001", "build: model field");
@@ -41,14 +45,25 @@ int main() {
     CHECK(doc["messages"].size() == 1, "build: one message");
     CHECK(doc["messages"][0]["role"] == "user", "build: msg0 is user");
     CHECK(doc["messages"][0]["content"] == "hello", "build: user content");
-    CHECK(!doc["messages"][0]["role"].is<const char*>() ||
-              doc["messages"][0]["role"] != "system",
-          "build: no system role in messages");
+  }
+
+  // 1b. Multi-turn history maps in order, roles preserved.
+  {
+    std::vector<Turn> turns = {
+        {"user", "u1"}, {"assistant", "a1"}, {"user", "u2"}};
+    std::string body = buildChatRequest("m", "p", turns, 512);
+    JsonDocument doc;
+    CHECK(!deserializeJson(doc, body), "build(history): valid JSON");
+    CHECK(doc["messages"].size() == 3, "build(history): three messages");
+    CHECK(doc["messages"][1]["role"] == "assistant",
+          "build(history): assistant in the middle");
+    CHECK(doc["messages"][2]["content"] == "u2", "build(history): last user");
   }
 
   // 2. Escaping + UTF-8: quotes survive and Ukrainian round-trips.
   {
-    std::string body = buildChatRequest("m", "p", "він сказав \"привіт\"", 256);
+    std::vector<Turn> turns = {{"user", "він сказав \"привіт\""}};
+    std::string body = buildChatRequest("m", "p", turns, 256);
     JsonDocument doc;
     CHECK(!deserializeJson(doc, body), "build: escaped JSON still valid");
     CHECK(doc["messages"][0]["content"] == "він сказав \"привіт\"",
@@ -113,6 +128,17 @@ int main() {
     std::string resp = R"({"content":[{"type":"tool_use","name":"x"}]})";
     std::string reply, err;
     CHECK(!parseChatReply(resp, reply, err), "parse: no text block -> false");
+  }
+
+  // 9. isRetryableHttpStatus: 429 + 5xx are transient; 4xx + 2xx are not.
+  {
+    CHECK(isRetryableHttpStatus(429), "retry: 429 -> yes");
+    CHECK(isRetryableHttpStatus(500), "retry: 500 -> yes");
+    CHECK(isRetryableHttpStatus(503), "retry: 503 -> yes");
+    CHECK(!isRetryableHttpStatus(400), "retry: 400 -> no");
+    CHECK(!isRetryableHttpStatus(401), "retry: 401 -> no");
+    CHECK(!isRetryableHttpStatus(404), "retry: 404 -> no");
+    CHECK(!isRetryableHttpStatus(200), "retry: 200 -> no");
   }
 
   if (g_failures == 0) {

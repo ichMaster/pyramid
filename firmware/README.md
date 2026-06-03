@@ -13,11 +13,15 @@ firmware/
     pyramid.ino         # the sketch: board + Wi-Fi + serial + LLM glue
     line_reader.h       # pure: non-blocking line reader (host-testable)
     serial_protocol.h   # pure: text_in parse (host-testable)
-    chat_api.h          # pure: LLM request build / reply parse (host-testable)
+    chat_api.h          # pure: LLM request build / reply parse / retry class (host-testable)
+    history.h           # pure: short rolling conversation history (host-testable)
+    backoff.h           # pure: capped exponential backoff (host-testable)
     config.example.h    # config template — copy to config.h (gitignored)
   test/
     test_line_reader.cpp  # host unit test for the serial logic
-    test_chat_api.cpp     # host unit test for the LLM JSON build/parse
+    test_chat_api.cpp     # host unit test for the LLM JSON build/parse + retry
+    test_history.cpp      # host unit test for history windowing
+    test_backoff.cpp      # host unit test for the backoff schedule
 ```
 
 `pyramid/` is the Arduino sketch folder (the `.ino` matches the folder name);
@@ -29,11 +33,17 @@ so the Arduino build ignores it.
 - **v0.1 (PYR-001):** board + Wi-Fi + USB-CDC line channel; a typed line
   becomes a `text_in` event. Status logs gated by `DEBUG_SERIAL`.
 - **v0.2 (PYR-002):** each `text_in` is sent to **Claude** via the Anthropic
-  Messages API over **direct HTTPS** (persona as the top-level `system`, single
-  user turn), and the model's reply is printed to serial. The call is
-  synchronous (`thinking…` while waiting); HTTP/JSON errors surface as one
-  `error: <msg>` line and the loop never hangs. Replies are in Ukrainian per
-  the persona. Rolling history + Wi-Fi auto-reconnect land in v0.3 (PYR-003).
+  Messages API over **direct HTTPS** (persona as the top-level `system`), and
+  the model's reply is printed to serial. The call is synchronous (`thinking…`
+  while waiting); HTTP/JSON errors surface as one `error: <msg>` line and the
+  loop never hangs. Replies are in Ukrainian per the persona.
+- **v0.3 (PYR-003):** robustness. A short **rolling history** (`HISTORY_MAX_TURNS`)
+  is resent with each request for context; the LLM call does a **bounded retry**
+  with exponential backoff on transient failures (transport / 429 / 5xx) and
+  surfaces a clear line otherwise; **Wi-Fi loss auto-recovers** with non-blocking
+  exponential backoff, input is paused while offline, and the LCD shows
+  `idle / thinking / error / offline`. Only successful turns are committed to
+  history, so a failed call can't poison the context.
 
 The persona, model, endpoint, and API key all live in `config.h` — behavior is
 config-driven, not hardcoded. Default model is `claude-haiku-4-5-20251001`
@@ -50,7 +60,7 @@ firmware. TLS uses `setInsecure()` in v0 (no cert pinning).
 3. `cp pyramid/config.example.h pyramid/config.h` and set `WIFI_SSID` /
    `WIFI_PASS`, plus the Anthropic settings `LLM_ENDPOINT` / `LLM_MODEL` /
    `LLM_API_KEY` (an `sk-ant-…` key) / `LLM_ANTHROPIC_VERSION` /
-   `LLM_MAX_TOKENS` / `LLM_PERSONA` (and `DEBUG_SERIAL`).
+   `LLM_MAX_TOKENS` / `LLM_PERSONA` / `HISTORY_MAX_TURNS` (and `DEBUG_SERIAL`).
 4. Open `pyramid/pyramid.ino`, compile, and upload.
 5. Open the Serial Monitor at **115200**, type a line, press Enter — the device
    replies via the LLM. Wi-Fi state is logged on boot.
@@ -64,15 +74,17 @@ arduino-cli compile --fqbn m5stack:esp32:m5stack_atoms3r pyramid
 
 ## Host tests (pure logic)
 
-The line reader, `text_in` parser, and LLM JSON build/parse are pure C++, so
-they run on the host (formally folded into PlatformIO's native test env in v1).
-`test_chat_api` needs ArduinoJson's headers on the include path — point `-I` at
-your installed library's `src/` (e.g.
+The line reader, `text_in` parser, history, backoff, and LLM JSON build/parse
+are pure C++, so they run on the host (formally folded into PlatformIO's native
+test env in v1). `test_chat_api` needs ArduinoJson's headers on the include
+path — point `-I` at your installed library's `src/` (e.g.
 `~/Documents/Arduino/libraries/ArduinoJson/src`):
 
 ```sh
 cd test
 c++ -std=c++17 -I../pyramid test_line_reader.cpp -o test_line_reader && ./test_line_reader
+c++ -std=c++17 -I../pyramid test_history.cpp     -o test_history     && ./test_history
+c++ -std=c++17 -I../pyramid test_backoff.cpp     -o test_backoff     && ./test_backoff
 c++ -std=c++17 -I../pyramid -I"$HOME/Documents/Arduino/libraries/ArduinoJson/src" \
   test_chat_api.cpp -o test_chat_api && ./test_chat_api
 ```
