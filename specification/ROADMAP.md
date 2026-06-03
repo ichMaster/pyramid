@@ -104,17 +104,19 @@ With playback already solid, this phase adds the input half: push-to-talk captur
 
 ### v1.4 — States and UX
 
-**Goal:** the voice interaction is legible and survives a flaky network.
+**Goal:** the voice interaction is legible, survives a flaky network, and feels responsive.
 
-Add pause-based end-of-utterance so the user need not time the button perfectly, surface the turn state on the LCD, and harden the loop against Wi-Fi loss and stage timeouts.
+Add pause-based end-of-utterance so the user need not time the button perfectly, surface the turn state on the LCD, harden the loop against Wi-Fi loss and stage timeouts, and shave the felt latency that the v1.3 timing instrumentation exposed (ASR dominates the wait, mostly per-call connection overhead).
 
 **Tasks:**
 - Detect end-of-utterance by pause (silence threshold + hangover), bounded by `recog_patience` from the config.
 - Drive LCD states through the turn: listening / thinking / replying / error.
 - Handle Wi-Fi loss and per-stage (ASR/LLM/TTS) timeouts mid-turn; recover to idle cleanly.
 - Tune the push-to-talk vs. pause-detection interplay so both feel natural.
+- **Pre-warm the ASR connection** (carried over from the v1.3 latency analysis, rec. #2): open/establish the TLS connection to the ASR host at button-press so the handshake overlaps the user's speech instead of sitting on the critical path after release. Targets the ~3 s fixed ASR overhead measured in v1.3 (ASR ≈ 3043 ms + 1.14 × clip_ms; ~61 % of post-speech latency).
+- **Complete the latency instrumentation** (carried over, rec. #5): attribute the ASR call duration even when it returns empty / low-confidence (today `asrMs` is only stamped on success, so re-prompt turns mis-report `asr=0` and dump the time into `other`). Stamp `asrMs` right after `asrTranscribe` regardless of outcome so the `[latency]` breakdown stays trustworthy as latency work proceeds.
 
-**DoD:** the voice chat works reliably, and the current state is always visible on the screen.
+**DoD:** the voice chat works reliably, the current state is always visible on the screen, the `[latency]` breakdown is correct on every turn (including re-prompts), and pre-warming measurably cuts the ASR stage's fixed overhead versus the v1.3 baseline.
 
 ---
 
