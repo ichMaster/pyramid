@@ -3,25 +3,24 @@
 **Date:** 2026-06-03
 **Branch:** main
 **Label:** v1::version:1
-**Scope:** phases **v1.1** (Audio I/O + PlatformIO, PYR-004…007) and **v1.2** (TTS output, PYR-008…010)
+**Scope:** phases **v1.1** (Audio I/O + PlatformIO, PYR-004…007), **v1.2** (TTS output, PYR-008…010), **v1.3** (ASR / full voice loop, PYR-011…013)
 **Executed by:** Claude Code
 
-> v1.1 (released **1.1.0**) and v1.2 are both **complete and hardware-verified**
-> on the AtomS3R + Atomic Echo Base. v1.2 spoken replies use **buffered**
-> playback (smooth); a streaming attempt tore/underran on the single-threaded
-> TLS+audio path and is **deferred to v1.4** (needs a background audio task). All
-> 7 issues (PYR-004…010) closed. v1.3 (ASR) and v1.4 (states/UX) remain. v1 is
-> **incomplete** → no version bump yet (v1.2 would release as `1.2.0` on
-> confirmation).
+> v1.1 (released **1.1.0**) and v1.2 (released **1.2.0**) are complete. **v1.3 is
+> complete and hardware-verified**: you hold the button, speak Ukrainian, and
+> hear a reply — the full voice loop. All **10** issues (PYR-004…013) closed.
+> Only **v1.4 (states/UX)** remains in v1. v1 is **incomplete** → no version bump
+> yet (v1.3 would release as `1.3.0` on confirmation). The device now speaks in
+> the **Лілі** character.
 
 ## Summary
 
 | Status | Count |
 |--------|-------|
-| Completed & hardware-verified (closed) | 7 |
+| Completed & hardware-verified (closed) | 10 |
 | Failed | 0 |
 | Skipped | 0 |
-| Remaining (v1.3, v1.4) | not yet scoped |
+| Remaining (v1.4) | not yet scoped |
 
 ## Issues
 
@@ -34,8 +33,12 @@
 | 8 | PYR-008 | Cloud TTS client (ElevenLabs → PCM16) | v1.2 | completed | 87f1be6 | 4 | native 7/7 + hardware |
 | 9 | PYR-009 | TTS → playback pipeline | v1.2 | completed | 75450d1 | 1 | hardware (audible) |
 | 10 | PYR-010 | TTS robustness (timeout/fallback/max len) | v1.2 | completed | 70dc1ff | 3 | native 7/7 + hardware |
+| 11 | PYR-011 | Cloud ASR client (Deepgram → transcript) | v1.3 | completed | 1fb87b5 | 4 | native 9/9 + hardware |
+| 12 | PYR-012 | Full voice loop (button → ASR → LLM → TTS → speaker) | v1.3 | completed | 2417c93 | 1 | hardware (~10 turns) |
+| 13 | PYR-013 | ASR robustness (gate / re-prompt / µ-law+retry) | v1.3 | completed | 6744e66 | 4 | native 9/9 + hardware |
 
 > v1.2 tuning commit **a1022a5**: terse persona + 5 s buffer (`REC_MAX_MS`) + `TTS_MAX_CHARS` so a full reply fits buffered playback. (The streaming `ttsSpeak` experiment was reverted — see Notes.)
+> v1.3 optimization commit **f88b035**: µ-law ASR upload + retry (fix 408 SLOW_UPLOAD), TTS → `eleven_turbo_v2_5` (latency); **979912f**: Лілі persona.
 
 ## Detailed Results
 
@@ -75,6 +78,21 @@
 - `clampUtf8()` (UTF-8 boundary-safe, host-tested) caps the reply at `TTS_MAX_CHARS`; bounded TTS timeout; spoken-or-logged fallback (exercised live when the key lacked permission — reply stayed on serial); empty audio rejected.
 - **Validation:** ✅ `pio test -e native` 7/7 (`test_tts` covers `clampUtf8`); ✅ **hardware** reliability pass.
 
+### PYR-011: Cloud ASR client (Deepgram → transcript)
+**Commit:** 1fb87b5 (+ f88b035) · [#11](https://github.com/ichMaster/pyramid/issues/11) (closed)
+- `src/asr_api.h` (pure: `parseAsrTranscript`) + `test/test_asr/`. `asrTranscribe()` POSTs the capture to Deepgram `/v1/listen` and parses `results.channels[0].alternatives[0].transcript`. Final version encodes to **8-bit µ-law in place** + `encoding=mulaw` (halves the upload) with a bounded retry.
+- **Validation:** ✅ `pio test -e native` (asr + ulaw); ✅ **hardware**: Ukrainian transcripts at 74–99% confidence. Path de-risked via curl (ElevenLabs clip → Deepgram → 0.9995; µ-law@16k → 0.9995).
+
+### PYR-012: Full voice loop (button → ASR → LLM → TTS → speaker)
+**Commit:** 2417c93 · [#12](https://github.com/ichMaster/pyramid/issues/12) (closed)
+- Button: `recordWhileHeld()` → `voiceTurn()` → `asrTranscribe(g_pcm)` → shared `handleTurn()` (LLM + history + TTS + playback). `asrTranscribe` reads `g_pcm` before `ttsFetch` overwrites it. Serial path still works.
+- **Validation:** ✅ **hardware**: ~10-turn spoken Ukrainian exchange, end to end.
+
+### PYR-013: ASR robustness (gate / re-prompt / µ-law + retry)
+**Commit:** 6744e66 (+ f88b035) · [#13](https://github.com/ichMaster/pyramid/issues/13) (closed)
+- Pure `shouldTranscribe()` (host-tested) gates too-short/too-quiet captures before any API call; empty/failed recognition → spoken re-prompt; bounded ASR timeout. The **µ-law upload + retry** fix the intermittent Deepgram **408 SLOW_UPLOAD** seen on longer clips.
+- **Validation:** ✅ `pio test -e native` 9/9 (`test_audio` covers `shouldTranscribe`, `test_ulaw` the encoder); ✅ **hardware**: silent captures gated; loop never hangs.
+
 ## Notes
 
 - **Toolchain:** firmware is now **PlatformIO** (`pio run`, `pio run -t upload`, `pio test -e native`). espressif32 6.10.0 (arduino-esp32 2.x). Board profile `esp32-s3-devkitc-1` with AtomS3R USB flags; M5Unified detects the board at runtime.
@@ -82,9 +100,14 @@
 - **Benign log noise:** `[E] Wire.cpp:137 setPins(): bus already initialized` on each mic↔speaker switch (M5Unified re-touches the ES8311 I2C). No functional impact; the upstream example emits it too.
 - **Streaming deferred to v1.4:** a `ttsSpeak()` that streamed PCM chunks to the speaker (to remove the buffer cap) tore/underran on the single-threaded TLS-read + real-time-play path, and hit a keep-alive read timeout. Reverted to buffered playback (smooth); gapless long-reply playback needs a background audio task / ring buffer — a v1.4 item.
 - **TTS length is buffer-bounded:** spoken audio fits the ~5 s `REC_MAX_MS` buffer; the terse persona keeps replies short enough (observed 2.2–4.5 s), so no truncation in practice. The full reply text is always on serial regardless.
-- **Secrets:** `src/config.h` holds the user's real Wi-Fi / Anthropic / ElevenLabs keys and is gitignored; only `config.example.h` is committed. ElevenLabs keys must include the **`text_to_speech`** permission.
+- **Secrets:** `src/config.h` holds the user's real Wi-Fi / Anthropic / ElevenLabs / **Deepgram** keys and is gitignored; only `config.example.h` is committed. ElevenLabs keys must include the **`text_to_speech`** permission; Deepgram keys must allow `/v1/listen`.
+- **Stale-codec gotcha (v1.3):** after using the board for another project, the mic captured `peak=0` (ES8311 ADC left powered down). A **warm reflash didn't fix it; a cold USB power-cycle did**. Worth remembering for any audio bring-up.
+- **µ-law upload (v1.3):** the recorded PCM is encoded to 8-bit µ-law **in place** before the ASR POST — halves the upload, fixing Deepgram `408 SLOW_UPLOAD` on longer clips. Validated end-to-end via curl before firmware.
+- **Latency levers applied:** µ-law upload + TTS `eleven_turbo_v2_5`. Remaining (v1.4): streaming TTS playback + LLM→TTS clause pipelining; TLS handshakes to 3 hosts are an inherent floor.
+- **Character:** the default persona is now **Лілі** (authored canon; commit 979912f), with a short voice-format line so spoken replies fit the buffer. In v2 this canon moves server-side into the Role.
 
 ## Next Steps
 
-- **Release v1.2 as `1.2.0`** (per `A.B.C`) — on explicit confirmation only.
-- **v1.3 (ASR)** then **v1.4 (states/UX)**: break into issue files (`v1.3-issues.md`, …) and execute. v1.3 reuses the PTT capture (v1.1) → cloud ASR → the existing LLM→TTS chain. v1.4 can pick up **streaming TTS playback** (background audio task) and pause-based end-of-utterance.
+- **Release v1.3 as `1.3.0`** (per `A.B.C`) — on explicit confirmation only.
+- **v1.4 (states/UX):** the last v1 phase — pause-based end-of-utterance (VAD bounded by `recog_patience`), richer LCD states, mid-turn Wi-Fi/timeout recovery, and the deferred **streaming TTS playback** (background audio task) for lower latency + uncapped reply length.
+- Then **v2** (server + Name/Canon + emoji face) per the updated ROADMAP.
