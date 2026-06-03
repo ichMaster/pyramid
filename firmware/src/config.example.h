@@ -59,3 +59,21 @@
 
 // Speaker volume for playback (0–255).
 #define SPK_VOLUME 200
+
+// --- TTS (v1.2): ElevenLabs ------------------------------------------------
+// Spoken replies. Provider: ElevenLabs, output_format=pcm_16000 (raw 16 kHz
+// mono PCM16 — must match AUDIO_SAMPLE_RATE, no on-device decode). Ukrainian
+// comes from the multilingual model, not the voice. Get a key at
+// https://elevenlabs.io (Settings -> API Keys); pick any voice's ID.
+// NOTE: PCM output may require a paid ElevenLabs tier (free tier can be
+// MP3-only) — confirm pcm_16000 is available on your plan.
+#define TTS_ENDPOINT_BASE "https://api.elevenlabs.io/v1/text-to-speech/"
+#define TTS_API_KEY       "xi-replace-me"          // sent as the xi-api-key header
+#define TTS_VOICE_ID      "replace-with-voice-id"  // an ElevenLabs voice id
+#define TTS_MODEL         "eleven_multilingual_v2"
+#define TTS_SAMPLE_RATE   AUDIO_SAMPLE_RATE         // 16 kHz; matches playback
+
+// Max reply length (UTF-8 bytes, boundary-safe) sent to TTS, so a long reply
+// fits the playback buffer and stays cheap. Over-long replies are truncated
+// (v0.3 keeps the full text on serial). ~4 s of speech fits the v1.1 buffer.
+#define TTS_MAX_CHARS     280

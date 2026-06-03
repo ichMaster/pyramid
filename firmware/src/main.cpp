@@ -37,6 +37,7 @@
 #include "line_reader.h"
 #include "serial_protocol.h"
 #include "sse.h"
+#include "tts_api.h"
 
 namespace {
 
@@ -44,6 +45,7 @@ constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kWifiTimeoutMs = 20000;
 constexpr uint32_t kHttpConnectMs = 8000;
 constexpr uint32_t kHttpReadMs = 15000;
+constexpr uint32_t kTtsReadMs = 15000;  // TTS audio read budget (v1.2)
 
 // Bounded retry for transient LLM failures (transport / 429 / 5xx).
 constexpr int kMaxRetries = 2;
@@ -201,6 +203,105 @@ void playbackCaptured() {
   M5.Speaker.end();  // hand the bus back
   M5.Mic.begin();    // return to mic mode for the next push-to-talk
   showStatus("idle");
+}
+
+// TTS (v1.2): fetch spoken audio for `text` from ElevenLabs into g_pcm as raw
+// 16 kHz mono PCM16 (no decode), setting g_pcmLen so playbackCaptured() can
+// play it. Returns true on success; false + a readable `err` otherwise. The
+// audio is bounded by the g_pcm buffer (PYR-010 caps the text via
+// TTS_MAX_CHARS so a reply fits). Network read; verified on hardware.
+[[maybe_unused]] bool ttsFetch(const std::string& text, std::string& err) {
+  if (text.empty()) {
+    err = "tts: empty text";
+    return false;
+  }
+  WiFiClientSecure client;
+  client.setInsecure();  // v0: no cert pinning under the private allowlist model
+
+  HTTPClient http;
+  http.setConnectTimeout(kHttpConnectMs);
+  http.setTimeout(kTtsReadMs);
+  const String url =
+      String(TTS_ENDPOINT_BASE) + TTS_VOICE_ID + "?output_format=pcm_16000";
+  if (!http.begin(client, url)) {
+    err = "tts: http begin failed";
+    return false;
+  }
+  http.addHeader("xi-api-key", TTS_API_KEY);
+  http.addHeader("content-type", "application/json");
+  http.addHeader("accept", "audio/pcm");
+
+  const std::string body = pyramid::buildTtsRequest(TTS_MODEL, text);
+  const int status = http.POST(String(body.c_str()));
+  if (status != 200) {
+    const String payload = http.getString();  // error body is small text/JSON
+    err = "tts: http " + std::to_string(status);
+    if (payload.length()) {
+      err += ": " + std::string(payload.c_str()).substr(0, 120);
+    }
+    http.end();
+    return false;
+  }
+
+  // Read raw PCM16 into g_pcm (bounded). Handle both Content-Length (raw) and
+  // chunked transfer (dechunk via the host-tested Dechunker from sse.h).
+  WiFiClient* stream = http.getStreamPtr();
+  const int contentLen = http.getSize();  // >=0 if known, -1 if chunked
+  const bool chunked = (contentLen < 0);
+  uint8_t* const dst = reinterpret_cast<uint8_t*>(g_pcm);
+  const size_t cap = kMaxSamples * sizeof(int16_t);
+  size_t got = 0;
+  uint8_t sbuf[512];
+  std::string dec;
+  pyramid::Dechunker dechunk;
+  uint32_t lastRx = millis();
+
+  while (got < cap) {
+    if (!chunked && contentLen >= 0 && got >= static_cast<size_t>(contentLen)) break;
+    const int avail = stream ? stream->available() : 0;
+    if (avail <= 0) {
+      if (!http.connected() && (!stream || stream->available() == 0)) break;
+      if (millis() - lastRx > kTtsReadMs) {
+        err = "tts: stream timeout";
+        http.end();
+        g_pcmLen = 0;
+        return false;
+      }
+      delay(2);
+      continue;
+    }
+    int want = avail < static_cast<int>(sizeof(sbuf)) ? avail
+                                                      : static_cast<int>(sizeof(sbuf));
+    const int n = stream->readBytes(sbuf, want);
+    if (n <= 0) {
+      delay(2);
+      continue;
+    }
+    lastRx = millis();
+    if (chunked) {
+      dec.clear();
+      dechunk.feed(reinterpret_cast<const char*>(sbuf), n, dec);
+      size_t take = dec.size();
+      if (take > cap - got) take = cap - got;
+      memcpy(dst + got, dec.data(), take);
+      got += take;
+    } else {
+      size_t take = static_cast<size_t>(n);
+      if (take > cap - got) take = cap - got;
+      memcpy(dst + got, sbuf, take);
+      got += take;
+    }
+  }
+  http.end();
+
+  g_pcmLen = got / sizeof(int16_t);  // bytes -> samples (drop a trailing odd byte)
+  if (g_pcmLen == 0) {
+    err = "tts: empty audio";
+    return false;
+  }
+  logf("tts: %u samples (%u ms)", static_cast<unsigned>(g_pcmLen),
+       static_cast<unsigned>(g_pcmLen * 1000ull / TTS_SAMPLE_RATE));
+  return true;
 }
 
 // Outcome of a single HTTP attempt: ok (reply set), or failed (err set) with a
