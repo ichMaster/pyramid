@@ -8,7 +8,7 @@ A closed, online voice AI assistant on M5Stack hardware: a living, **named** cha
 
 A simple, self-tailored analog of xiaozhi. The device is thin: input/output and a screen; all the intelligence (LLM, and later ASR, TTS, memory, MCP) lives in the cloud or on a server. Behavior is defined by a configurable **Role** — including the character's **Name** and an authored **Canon** (its character bible). The product grows across four versions: first a text chat over USB serial, then voice, then our own server with role/canon configuration and an on-screen **emotion face**, and then memory, horoscope-temperament, web search, and MCP to other services.
 
-The device is one of a **family of M5Stack boards**, not a single SKU: v1 targets **AtomS3R + Echo Base** (ES8311 audio, 128×128 LCD); later boards — **Echo Pyramid base** (mic array + LED halo, v2.7), **M5StickS3** (all-in-one stick, v2.8), **Cardputer v1.1 & ADV** (keyboard, v2.9), **AtomS3R Camera** (vision, v3.7) and **Core S3** (onboard camera + larger screen, v3.8) — add capabilities the firmware detects and uses when present, degrading gracefully when absent. The audio / WS / Role / `EmotionFrame` contracts are identical across boards (ROADMAP §Hardware roadmap).
+The device is one of a **family of M5Stack boards**, not a single SKU: v1 targets **AtomS3R + Echo Base** (ES8311 audio, 128×128 LCD); later boards — **Echo Pyramid base** (mic array + LED halo, v2.7), **M5StickS3** (all-in-one stick, v2.8), **Cardputer v1.1 & ADV** (keyboard, v2.10), **AtomS3R Camera** (vision, v3.7) and **Core S3** (onboard camera + larger screen, v3.8) — add capabilities the firmware detects and uses when present, degrading gracefully when absent. The audio / WS / Role / `EmotionFrame` contracts are identical across boards (ROADMAP §Hardware roadmap).
 
 ## For whom
 
@@ -30,7 +30,7 @@ A private service for myself and a close circle. No public access: users and dev
 - Not a public service, not a mass product.
 - Not a complex cognitive architecture like the previous project: no planner-facets, no scored portrait, no background self-tuning. The **Canon is authored content**, not a computed model.
 - Deferred (not in any planned version yet): offline wake word, OPUS streaming, OTA, speaker recognition.
-- Planned but not early: the **emotion face** (from v2), **additional hardware** beyond Echo Base (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer v1.1 & ADV v2.9, AtomS3R Camera v3.7, Core S3 v3.8), **vision/camera** (v3.7), and **web search** (v3.5). Each lands in its version, not before.
+- Planned but not early: the **emotion face** (from v2), **additional hardware** beyond Echo Base (Echo Pyramid v2.7, M5StickS3 v2.8, active listening v2.9, Cardputer v1.1 & ADV v2.10, AtomS3R Camera v3.7, Core S3 v3.8), **vision/camera** (v3.7), and **web search** (v3.5). Each lands in its version, not before.
 
 ## Glossary
 

@@ -46,7 +46,8 @@ face** in v2.6.
 v2 also begins the **hardware family**: the Echo Pyramid base extends the emotion
 channel to its LED halo (v2.7), the all-in-one M5StickS3 lands with extra-button
 gestures + a richer UI (v2.8), and the Cardputer (v1.1 & ADV) adds on-device keyboard
-input (v2.9). v3 carries the family further — vision/camera on the AtomS3R Camera
+input (v2.10). An optional **active-listening** mode (hands-free follow-up turns,
+toggleable back to push-to-talk) lands in v2.9. v3 carries the family further — vision/camera on the AtomS3R Camera
 (v3.7) and Core S3 with onboard camera + a larger sprite face (v3.8). See
 [specification/ROADMAP.md](specification/ROADMAP.md) §Hardware roadmap for the
 full board matrix.

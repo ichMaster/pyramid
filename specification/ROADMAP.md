@@ -148,7 +148,7 @@ A FastAPI + websockets server terminates a single duplex WSS channel and runs th
 Introduce the `Role` model and build the system prompt from it. The role carries the character's **Name** and an authored **Canon** (a character bible — lore, traits, behavioral rules), plus persona, LLM choice, and voice parameters. Canon is hand-written content, not a facet engine (MISSION non-goal).
 
 **Tasks:**
-- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model).
+- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model). (v2.9 adds `input_mode` + `active_listen_window` for active listening.)
 - Assemble the system prompt from **canon + persona**; pass voice params to TTS and `recog_patience` to end-of-utterance.
 - Keep short in-session history (per `Session`) and feed it to the LLM with windowing.
 - Allow LLM selection per role; load the active role at connection time.
@@ -250,7 +250,24 @@ M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker,
 
 **DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
 
-### v2.9 — Cardputer (v1.1 & ADV) — keyboard input
+### v2.9 — Active listening (hands-free mode)
+
+**Goal:** an optional **hands-free** mode — after the assistant answers, the device listens again on its own (no button) — with a toggle back to push-to-talk.
+
+When **active listening** is on, the device reopens the mic right after playback ends, waits for the user to start speaking (VAD start-of-speech), captures until the trailing pause (the v1.4 endpointer), runs the turn, and repeats — a back-and-forth conversation with no button. A configurable **idle timeout** (no speech within the window) drops back to idle; push-to-talk always still works, and the mode is a per-Role / config setting the user can switch off.
+
+**Feasibility / constraint:** the single-mic Echo Base has **no AEC**, so the device must **not listen while it is speaking** (it would transcribe its own TTS). v2.9 therefore listens only **after** playback completes (a follow-up window), not over the top of it; true **barge-in** (interrupting the reply) needs the Echo Pyramid mic-array AEC (v2.7) and is deferred. Local VAD gates the upload, so an open mic doesn't stream audio to the cloud unless speech is detected.
+
+**Tasks:**
+- Extend the VAD/endpointer with **start-of-speech detection** + a configurable **listen window / idle timeout**: after a reply, open the mic for up to `active_listen_window` s; if speech starts, capture to the pause and run the turn, then listen again; if not, return to idle.
+- **Gate listening off during playback** (no self-hearing on non-AEC boards); resume only when playback has finished.
+- Add the mode as a **Role / config setting** (`input_mode`: `push_to_talk` | `active`) editable in the console, plus a device gesture to toggle it (e.g. M5StickS3 BtnB, a Cardputer key) and a clear **listening indicator** on the LCD / halo (privacy).
+- Keep push-to-talk fully working in both modes — a button press always starts a turn.
+- (Deferred) **barge-in** over playback — requires AEC (Echo Pyramid base, v2.7).
+
+**DoD:** with active listening on, you hold a multi-turn spoken conversation with **no button** between turns; it returns to idle after the idle timeout; you can switch back to push-to-talk from the console or a device gesture; the device never transcribes its own speech, and a listening indicator is always visible.
+
+### v2.10 — Cardputer (v1.1 & ADV) — keyboard input
 
 **Goal:** run on the **M5 Cardputer** — both **v1.1** and **ADV** — adding on-device typed input (keyboard, Enter to send) alongside voice.
 
@@ -395,6 +412,7 @@ Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 3
 - `EmotionFrame` (emotion-face) contract — v2.6 (emoji); same contract reused by the LED halo — v2.7, and the sprite face — v3.6/v3.8.
 - `image` (vision) contract — v3.7; reused by Core S3's onboard camera — v3.8.
 - Name + Canon in the `Role` — v2.2.
+- `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v2.9.
 
 ## Hardware roadmap
 
@@ -405,7 +423,7 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 | AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
 | AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
 | M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · **BtnA+BtnB** (gestures) | all-in-one (no base), 2-button gestures, richer UI | **v2.8** |
-| Cardputer **v1.1 & ADV** | ESP32-S3 (StampS3A) | v1.1: SPM1423 mic + NS4168 spk · ADV: ES8311 + 1 W spk | 240×135 · **keyboard** | on-device **typed input** | **v2.9** |
+| Cardputer **v1.1 & ADV** | ESP32-S3 (StampS3A) | v1.1: SPM1423 mic + NS4168 spk · ADV: ES8311 + 1 W spk | 240×135 · **keyboard** | on-device **typed input** | **v2.10** |
 | AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
 | Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
 
@@ -413,4 +431,4 @@ The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer v1.1 & ADV v2.9, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer v1.1 & ADV v2.10, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
