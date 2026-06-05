@@ -386,10 +386,10 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 | Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.8** |
 | AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
 | Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
-| M5StickS3 (ESP32-S3 Mini) | ESP32-S3 | ⚠️ verify mic/speaker (prior Stick had only a buzzer) | 135×240 · BtnA/B | — | candidate — unscheduled until real audio out is confirmed |
+| M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · BtnA/B | all-in-one, **no base** | candidate — **confirmed compatible**, schedule TBD |
 
 The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, so they're close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, Cardputer ADV v2.8, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6. M5StickS3 is an unscheduled candidate pending audio verification.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, Cardputer ADV v2.8, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6. M5StickS3 is a confirmed-compatible all-in-one candidate (ES8311 + MEMS mic + amped speaker, like an Echo Base in a stick) — schedule TBD.)

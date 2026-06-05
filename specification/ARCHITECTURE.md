@@ -133,7 +133,7 @@ Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilitie
 - **Cardputer ADV — v2.8:** ESP32-S3, 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + speaker.
 - **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v3.7:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
 - **Core S3 / CoreS3 SE — v3.8:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
-- **M5StickS3 (ESP32-S3 Mini) — candidate, unscheduled:** verify it has a usable mic + speaker (a passive buzzer can't render TTS); a port depends on real audio output.
+- **M5StickS3 (ESP32-S3 Mini) — candidate (confirmed compatible), schedule TBD:** all-in-one stick — **ES8311** codec (as Echo Base) + MEMS mic + AW8737 amp + 1 W speaker, 135×240 LCD, 8 MB PSRAM, no base needed. A straightforward port (PlatformIO env + 135×240 layout + button mapping). (On battery, cap volume ~75% to avoid brown-out.)
 
 The audio path (16 kHz mono PCM16), the WS contract, the Role/Canon model, and the `EmotionFrame` do not change with the board — adding a board is new drivers + capability flags + per-board input/layout, not a protocol change. The firmware **detects capabilities and degrades gracefully** when a feature (halo, mic array, camera) is absent.
 
