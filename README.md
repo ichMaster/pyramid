@@ -13,6 +13,8 @@ server.
 > Private by design — for the author and a close circle, not a public service.
 > Users and devices are added by an allowlist and bound with an activation code.
 
+For where development currently stands, see **[STATUS.md](STATUS.md)**.
+
 ## Architecture in one pass
 
 Three tiers that grow across versions:
@@ -29,59 +31,55 @@ The device stays thin in every version; behavior is defined by a configurable
 - [specification/ARCHITECTURE.md](specification/ARCHITECTURE.md) — components, protocols, message contracts, data model.
 - [specification/ROADMAP.md](specification/ROADMAP.md) — the v0–v3 plan (phases, goals, tasks, DoD).
 
-## Version progression
+## Build & flash
 
-Complexity is added **only by version** — each ships standalone, built in order:
+The firmware is **PlatformIO** (install [PlatformIO Core](https://docs.platformio.org/en/latest/core/)
+→ the `pio` CLI). From `firmware/`:
 
-| Version | Theme | Status |
-|---------|-------|--------|
-| **v0** | Text chat over serial — device ↔ cloud LLM directly, text over USB-CDC | **complete** (v0.1–v0.3) |
-| **v1** | Voice — I2S audio, push-to-talk; TTS, then ASR; states/UX; PlatformIO | **complete** (v1.1–v1.4) |
-| **v2** | Server with role config — own backend (WSS/FastAPI), console, accounts, activation | planned (next) |
-| **v3** | Memory, horoscope-temperament, MCP layer | planned |
+1. **Configure.** `cp src/config.example.h src/config.h`, then fill in your
+   credentials (`config.h` is gitignored — it holds your keys, never commit it):
+   - **Wi-Fi** — `WIFI_SSID`, `WIFI_PASS`
+   - **LLM** (Anthropic) — `LLM_API_KEY` (`sk-ant-…`), `LLM_MODEL`, `LLM_PERSONA`
+   - **TTS** (ElevenLabs) — `TTS_API_KEY`, `TTS_VOICE_ID`
+   - **ASR** (Deepgram) — `ASR_API_KEY`
+2. **Compile** — `pio run` (first build fetches M5Unified + ArduinoJson).
+3. **Flash** — `pio run -t upload` (add `--upload-port /dev/cu.usbmodemXXXX` if
+   the port isn't auto-detected; close the serial monitor first).
+4. **Monitor** — `pio device monitor` (serial @115200).
+
+The full config-field reference and the host tests live in
+[firmware/README.md](firmware/README.md).
+
+> **Security:** API keys are compiled into the firmware and are extractable from
+> a flashed device — acceptable only under the private allowlist model; never
+> publish such firmware.
+
+## Using it
+
+- **Talk:** hold **button A**, speak Ukrainian, then release — *or* just stop
+  talking and it ends on the pause (VAD) — and hear the spoken reply.
+- **Type:** in the serial monitor, type a line and press Enter for the same
+  reply, spoken (a debug channel that stays available in every version).
+- **Screen:** the LCD shows the turn state (`idle / listening / thinking /
+  replying / error / offline`). Set `SHOW_TRANSCRIPT true` in `config.h` to
+  instead show the conversation text + answer-time (`last`/`avg`) in a small,
+  Cyrillic-capable font.
+- **Serial telemetry:** each turn logs `[stats]` (LLM tokens + latency),
+  `[latency]` (press→speak breakdown), and `[answer]` (last/average answer time).
 
 ## Repository layout
 
 ```
-firmware/        # AtomS3R + Echo Base, C++/M5Unified (Arduino IDE in v0, PlatformIO from v1)
+firmware/        # AtomS3R + Echo Base, C++/M5Unified (PlatformIO)
 specification/   # MISSION.md, ARCHITECTURE.md, ROADMAP.md + roadmap/implementation issues
                  # server/, mcp/, console/, tests/ are created as each version starts
 ```
 
-## Current state (v1.4 — full voice loop)
+## More
 
-**Hold the button, speak Ukrainian, and hear a spoken reply** — the complete
-voice exchange runs on the device: mic → Deepgram **ASR** → Claude (streamed,
-with rolling history, retry, Wi-Fi recovery) → ElevenLabs **TTS** (`pcm_16000`)
-→ I2S playback on the Atomic Echo Base. Typing a line over USB serial is an
-equivalent text path / debug channel.
-
-v1 is complete across four phases:
-- **v1.1** — PlatformIO migration + `pio test -e native` host tests; push-to-talk
-  record→playback on the ES8311 Echo Base.
-- **v1.2** — cloud TTS (spoken replies), buffered for smooth playback.
-- **v1.3** — cloud ASR + the full voice loop; µ-law upload + turbo TTS for latency.
-- **v1.4** — states & UX: a turn-state machine drives the LCD, pause-based
-  end-of-utterance (VAD), mid-turn Wi-Fi/timeout recovery, per-turn latency +
-  answer-time stats, and an optional on-screen transcript.
-
-The default persona is **Піраміда** (a terse Ukrainian helper); the device is
-still direct-to-cloud — its own server arrives in v2.
-
-Build and flash instructions are in [firmware/README.md](firmware/README.md).
-Run the pure-logic host tests:
-
-```sh
-cd firmware && pio test -e native
-```
-
-## Releases
-
-The current version lives in [VERSION](VERSION); release notes are in
-[RELEASE.txt](RELEASE.txt). Versions follow **`A.B.C`** — `A` = roadmap version
-(v0→0, v1→1, v2→2, v3→3), `B` = phase within it (`v1.4` → `1.4.0`), `C` =
-post-release fix. Releases are cut per phase: v1 shipped as 1.1.0 → 1.2.0 →
-1.3.0 → 1.4.0.
+- **[STATUS.md](STATUS.md)** — current development state: what works now, what's next.
+- **[specification/ROADMAP.md](specification/ROADMAP.md)** — the full v0–v3 plan.
+- **[RELEASE.txt](RELEASE.txt)** — release notes · **[VERSION](VERSION)** — current version.
 
 ## License
 
