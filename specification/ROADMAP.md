@@ -226,11 +226,11 @@ When **active listening** is on, the device reopens the mic right after playback
 **Tasks:**
 - Extend the VAD/endpointer with **start-of-speech detection** + a configurable **listen window / idle timeout**: after a reply, open the mic for up to `active_listen_window` s; if speech starts, capture to the pause and run the turn, then listen again; if not, return to idle.
 - **Gate listening off during playback** (no self-hearing on non-AEC boards); resume only when playback has finished.
-- Add the mode as a **Role / config setting** (`input_mode`: `push_to_talk` | `active`) editable in the console, plus a device gesture to toggle it (e.g. M5StickS3 BtnB, a Cardputer key) and a clear **listening indicator** on the LCD / halo (privacy).
+- Add the mode as a **Role / config setting** (`input_mode`: `push_to_talk` | `active`) editable in the console — that's the toggle at this stage; the multi-button boards (M5StickS3 v4.2, Cardputer v5.1) later map a gesture/key onto it. Show a clear **listening indicator** on the LCD (privacy).
 - Keep push-to-talk fully working in both modes — a button press always starts a turn.
-- (Deferred) **barge-in** over playback — requires AEC (Echo Pyramid base, v4.1).
+- (Deferred) **barge-in** over playback — requires the mic-array AEC of the Echo Pyramid base (v4.1).
 
-**DoD:** with active listening on, you hold a multi-turn spoken conversation with **no button** between turns; it returns to idle after the idle timeout; you can switch back to push-to-talk from the console or a device gesture; the device never transcribes its own speech, and a listening indicator is always visible.
+**DoD:** with active listening on, you hold a multi-turn spoken conversation with **no button** between turns; it returns to idle after the idle timeout; you can switch back to push-to-talk from the console (a device-gesture toggle follows with the v4.2/v5.1 boards); the device never transcribes its own speech, and a listening indicator is always visible.
 
 ---
 
@@ -313,13 +313,13 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
-Behind the same `EmotionFrame` contract and emotion enum from v2.4, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
+Behind the same `EmotionFrame` contract and emotion enum from v2.4, replace `EmojiRenderer` with a sprite renderer on the LCD: procedural layered sprites (eyes / brows / mouth) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md. (The LED **halo** is a separate renderer of the same `EmotionFrame`, delivered with the Echo Pyramid base in v4.1.)
 
 **Tasks:**
 - Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
 - Idle loop (blink, breathe, micro gaze drift), ~150–250 ms crossfade, intensity-scaled expressiveness.
 - Lip-sync: derive an amplitude envelope from playback (RMS) → mouth visemes while `speaking`.
-- On Echo Pyramid base hardware, drive the LED halo from the same `EmotionFrame`. (Artist "Lili" sprite pack: a later asset-only swap.)
+- (Artist "Lili" sprite pack: a later asset-only swap over the same layer scheme.)
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
 
@@ -502,7 +502,7 @@ The camera boards (v5.2 AtomS3R Camera, v5.3 Core S3) capture a few seconds of *
 
 ## v7 — Bots & clients
 
-Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`, and the v6 media understanding) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), v3 (memory / MCP), v5 (the emotion face these clients render) and v6 (media understanding for shared images / voice notes / clips).
+Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`, and the v6 media understanding) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth + emoji face), v3 (memory / MCP + the sprite face these clients render) and v6 (media understanding for shared images / voice notes / clips).
 
 ### v7.1 — Telegram bot
 
