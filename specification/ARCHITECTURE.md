@@ -97,7 +97,7 @@ screen, no persona logic.
 
 ## Turn lifecycle
 
-A turn is half-duplex (barge-in is deferred to "beyond v0–v3"). Voice path (v1+):
+A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v2.7/v2.9). Voice path (v1+):
 
 ```
 button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop

@@ -21,6 +21,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
 | **v2** | Server with role config — WSS/FastAPI, console, accounts, activation, **deployment (Fly.io)**, + boards (Echo Pyramid halo, M5StickS3, Cardputer v1.1 & ADV) | ⏭️ next |
 | **v3** | Memory, MCP, horoscope-temperament, web search, sprite face, **vision/camera**, **Core S3** | 🔜 planned |
+| **v4** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
 ### v1 phases (done)
 
@@ -52,13 +53,18 @@ toggleable back to push-to-talk) lands in v2.9. v3 carries the family further �
 [specification/ROADMAP.md](specification/ROADMAP.md) §Hardware roadmap for the
 full board matrix.
 
+Then **v4 — bots & clients** adds front-ends on top of the same server: a
+**Telegram bot** (text / voice notes / photos), a **web voice client** that
+renders the emotion face in the browser, and a **Meshtastic** LoRa bot — each a
+thin bridge to the server's Role/LLM pipeline (intelligence stays server-side).
+
 Carried forward into v2 from the v1 work:
 - **Latency wins** that need server-side pacing — streaming ASR, sentence-streaming
   TTS, early/streaming playback (a device-side pre-warm was tried in v1.4 and
   reverted; it belongs server-side).
 - The richer **Лілі** Name + Canon, which becomes the server-side Role.
 
-See [specification/ROADMAP.md](specification/ROADMAP.md) §v2 for the phase plan and DoDs.
+See [specification/ROADMAP.md](specification/ROADMAP.md) §v2–§v4 for the phase plans and DoDs.
 
 ## Versioning & releases
 

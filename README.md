@@ -29,7 +29,7 @@ The device stays thin in every version; behavior is defined by a configurable
 
 - [specification/MISSION.md](specification/MISSION.md) — what is being built and why; principles and non-goals.
 - [specification/ARCHITECTURE.md](specification/ARCHITECTURE.md) — components, protocols, message contracts, data model.
-- [specification/ROADMAP.md](specification/ROADMAP.md) — the v0–v3 plan (phases, goals, tasks, DoD).
+- [specification/ROADMAP.md](specification/ROADMAP.md) — the v0–v4 plan (phases, goals, tasks, DoD).
 
 ## Build & flash
 
@@ -78,7 +78,7 @@ specification/   # MISSION.md, ARCHITECTURE.md, ROADMAP.md + roadmap/implementat
 ## More
 
 - **[STATUS.md](STATUS.md)** — current development state: what works now, what's next.
-- **[specification/ROADMAP.md](specification/ROADMAP.md)** — the full v0–v3 plan.
+- **[specification/ROADMAP.md](specification/ROADMAP.md)** — the full v0–v4 plan.
 - **[RELEASE.txt](RELEASE.txt)** — release notes · **[VERSION](VERSION)** — current version.
 
 ## License

@@ -400,6 +400,51 @@ Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 3
 
 ---
 
+## v4 — Bots & clients
+
+Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), and v3 for the richer face / memory / vision these clients surface.
+
+### v4.1 — Telegram bot
+
+**Goal:** chat with the assistant from **Telegram** — text, voice notes, and photos — as a private bot.
+
+A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: text is a `text_in`; **voice notes** go through the existing ASR→LLM→TTS (reply as text + a spoken voice note); **photos** use the v3.7 vision path. Closed: only allowlisted Telegram IDs are answered.
+
+**Tasks:**
+- Add a Telegram bridge to the server (Bot API; long-poll or webhook); map a chat to a `Session` + `Role`.
+- Text → LLM; **voice note** → ASR → LLM → TTS (reply text + voice); **photo** → vision (v3.7).
+- Allowlist Telegram user/chat IDs (reuse the closed-access model); rate-limit; per-user short history/memory.
+
+**DoD:** an allowlisted Telegram user can text or send a voice note and get the assistant's reply (text + spoken); unknown users are ignored.
+
+### v4.2 — Web voice client + emotion face
+
+**Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
+
+A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.6, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.4 login.
+
+**Tasks:**
+- Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.9).
+- Render the face in the browser from the `EmotionFrame` (emoji / sprite), with the idle loop + lip-sync mirrored from the device renderer.
+- Auth: behind the v2.4 accounts/login; one `Session` per browser client.
+
+**DoD:** open the web client, log in, speak (or type), hear the reply, and watch the on-screen face react — the same Role / `EmotionFrame` as the hardware device.
+
+### v4.3 — Meshtastic bot bridge
+
+**Goal:** the assistant answers on a **LoRa Meshtastic mesh** as an off-grid text bot.
+
+The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtastic firmware); the server runs a **bridge** to it via **MQTT** or the **Meshtastic device API** (serial / BLE / TCP). Incoming mesh text → the Role/LLM pipeline → a reply sent back over the mesh. Pyramid does **not** reimplement Meshtastic on-device — it bridges to a node.
+
+**Tasks:**
+- Server-side Meshtastic bridge (MQTT gateway or the Meshtastic API); map a mesh sender to a `Session`.
+- Answer only on a **dedicated channel / DMs**; **allowlist** node IDs; **rate-limit**; keep replies **terse and chunked** for LoRa's tiny, slow payloads.
+- Optional: a `mesh.send` MCP tool (assistant-initiated messages) and GNSS location context.
+
+**DoD:** an allowlisted node messages the assistant over LoRa and gets a (chunked) reply back on the mesh; the bot stays within rate/size limits and ignores other nodes/channels.
+
+---
+
 ## Mapping of protocols and contracts
 
 - Serial protocol (text) and `text_in`/`reply` — v0.1, v0.2.
@@ -413,6 +458,9 @@ Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 3
 - `image` (vision) contract — v3.7; reused by Core S3's onboard camera — v3.8.
 - Name + Canon in the `Role` — v2.2.
 - `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v2.9.
+- Telegram bridge (Bot API: text / voice note / photo) — v4.1.
+- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.4 auth) — v4.2.
+- Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v4.3.
 
 ## Hardware roadmap
 
@@ -429,6 +477,6 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 
 The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M5StickS3 reuses the same ES8311 audio, so all three are close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
-## Deferred (beyond v0–v3)
+## Deferred (beyond v0–v4)
 
 Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer v1.1 & ADV v2.10, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
