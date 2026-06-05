@@ -196,9 +196,10 @@ Containerize the server and add a pipeline that builds, tests, and deploys it to
 - **GitHub Actions CD:** extend the existing CI (lint + `pytest`) with a deploy job triggered on a **version tag** (or manual `workflow_dispatch`) — build → push image to GHCR → `flyctl deploy` (auth via a `FLY_API_TOKEN` secret). `main` stays green; deploys stay deliberate.
 - **Data & migrations:** a startup schema init/migration; the SQLite volume persists across deploys; document backup/restore.
 - **Cutover:** point the device's WSS endpoint at the live domain and **retire `setInsecure()`** (validate the real certificate); health check + platform rollback.
+- **Security gate — runs before every deploy, blocks on failure:** the v2.4 access-control tests re-run as a release gate (unauthorized `device_token` rejected + socket closed, single-use / short-TTL activation, token revocation, allowlist enforced, login + `/activate` rate-limits), the enumerated `error.code` set is honored, and oversized / malformed WS frames are rejected — plus deploy-time scans: secrets-leak scan (e.g. gitleaks) over the repo + built image, dependency / image vulnerabilities (`pip-audit`, Trivy), Python SAST (`bandit`), and a TLS posture check (no plaintext WS/HTTP in `prod`; valid cert). Wire these into the CD job so a failure stops the deploy.
 - *(Optional)* a `staging` Fly app for a pre-prod smoke test — skip if not needed at this scale.
 
-**DoD:** pushing a tagged server release auto-builds, tests, and deploys to Fly.io; the device connects to the live WSS endpoint over TLS; data persists across deploys; a rollback is one command.
+**DoD:** pushing a tagged server release auto-builds, tests, and deploys to Fly.io; the device connects to the live WSS endpoint over TLS; data persists across deploys; a rollback is one command; **the deploy is gated on the security suite passing (auth, secrets, dependencies, TLS) — any failure blocks the release.**
 
 ### v2.6 — Emotion channel + emoji face
 
