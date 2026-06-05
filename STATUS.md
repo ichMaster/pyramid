@@ -19,9 +19,9 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
-| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, closed access, **deploy (Fly.io)**, **multi-session hub**, session admin | ⏭️ next |
+| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **multi-session hub**, session admin | ⏭️ next |
 | **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search | 🔜 planned |
-| **v4** | Devices & presence — **emotion face** (emoji+sprite), Echo Pyramid+halo, M5StickS3, active listening, Cardputer, **camera/vision**, Core S3 | 🔜 planned |
+| **v4** | Devices & presence — Echo Pyramid+halo, M5StickS3, active listening, Cardputer, **sprite face**, **camera/vision**, Core S3 | 🔜 planned |
 | **v5** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
 ### v1 phases (done)
@@ -39,20 +39,21 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 **v2 — Server platform.** Our own backend (**WSS / FastAPI**) sits between the
 device and the AI; the ASR→LLM→TTS loop moves **server-side** and the device
 becomes a streaming client. The persona becomes a configurable **Role** (Name +
-authored **Canon**), edited in a **web console**; access is closed (accounts,
-activation by code, allowlist). Developed/tested **locally on the LAN** through
-v2.4, then **deployed to Fly.io with automated CI/CD** (v2.5), and grown into a
-**multi-session hub** with shared per-account resources (v2.6) + a **session-admin
-console** (v2.7).
+authored **Canon**), edited in a **web console**, and the device gains its first
+on-screen **emoji face** (v2.4). Access is closed (accounts, activation by code,
+allowlist). Developed/tested **locally on the LAN** through v2.5, then **deployed
+to Fly.io with automated CI/CD** (v2.6), and grown into a **multi-session hub**
+with shared per-account resources (v2.7) + a **session-admin console** (v2.8).
 
 **v3 — Intelligence & MCP.** The mind: long-term **memory**, the **MCP layer**,
 **agent orchestration** (delegate to / control other agents via MCP),
 horoscope-**temperament**, persona integration, and bounded **web search**.
 
-**v4 — Devices & presence.** The on-screen **emotion face** (emoji → sprite) and
-the M5Stack **board family**: Echo Pyramid + LED halo, M5StickS3 (two-button
-gestures + richer UI), **active listening** (hands-free), Cardputer v1.1 & ADV
-(keyboard), **camera/vision** (AtomS3R Camera), and Core S3. See
+**v4 — Devices & presence.** The M5Stack **board family** and richer presence —
+the LED **halo** (Echo Pyramid), M5StickS3 (two-button gestures + richer UI),
+**active listening** (hands-free), Cardputer v1.1 & ADV (keyboard), an animated
+**sprite face** (upgrading the v2.4 emoji face), **camera/vision** (AtomS3R
+Camera), and Core S3. See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
 **v5 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
