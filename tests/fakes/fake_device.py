@@ -58,6 +58,25 @@ class FakeDevice:
     def recv_bytes(self) -> bytes:
         return self._ws.receive_bytes()
 
+    def recv(self) -> tuple[str, object]:
+        """Low-level receive: returns ``("text", dict)`` or ``("bytes", data)``."""
+        frame = self._ws.receive()
+        if frame.get("text") is not None:
+            return "text", json.loads(frame["text"])
+        if frame.get("bytes") is not None:
+            return "bytes", frame["bytes"]
+        return "other", frame
+
+    def drain_until(self, msg_type: str) -> list[tuple[str, object]]:
+        """Collect frames (text + binary) up to and including a text frame of
+        ``msg_type``."""
+        out: list[tuple[str, object]] = []
+        while True:
+            kind, payload = self.recv()
+            out.append((kind, payload))
+            if kind == "text" and isinstance(payload, dict) and payload.get("type") == msg_type:
+                return out
+
     def expect_closed(self) -> bool:
         """Return True if the server has closed the socket."""
         try:

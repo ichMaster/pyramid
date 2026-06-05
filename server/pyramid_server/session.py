@@ -13,6 +13,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .history import ChatMessage
+
 
 @dataclass
 class Session:
@@ -23,6 +25,8 @@ class Session:
     proto_ver: tuple[int, int] | None = None
     started_at: float = field(default_factory=time.time)
     last_seen: float = field(default_factory=time.time)
+    # Rolling conversation history (text only; audio is never persisted).
+    history: list[ChatMessage] = field(default_factory=list)
     _turn_seq: int = 0
 
     def touch(self) -> None:

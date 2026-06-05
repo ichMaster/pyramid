@@ -86,5 +86,13 @@ def create_app(
     return app
 
 
-# Module-level app for ``uvicorn pyramid_server.main:app``.
-app = create_app()
+def _default_app() -> FastAPI:
+    """Module-level app for ``uvicorn pyramid_server.main:app`` — wires the real
+    provider orchestrator from settings (``None`` if no LLM key, so it still boots)."""
+    from .orchestrator import build_default_orchestrator
+
+    settings = load_settings()
+    return create_app(settings, orchestrator=build_default_orchestrator(settings))
+
+
+app = _default_app()
