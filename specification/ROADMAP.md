@@ -266,21 +266,7 @@ Introduce an MCP client in the server and move `role`, `memory`, `knowledge_base
 
 **DoD:** the agent calls memory, knowledge, and weather through MCP on its own.
 
-### v3.3 — Agent orchestration (MCP)
-
-**Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
-
-Add an `agents` MCP service so the assistant orchestrates external / sub-agents the same uniform way it uses every other tool (role / memory / kb / weather / web). The server's MCP client calls it; the orchestration policy and intelligence stay server-side, exposed to the agent as MCP tools — not a parallel mechanism.
-
-**Tasks:**
-- Define the `agents` MCP contract + tools — e.g. `agents.list()`, `agents.run(agent, task, args) → result`, `agents.status(id)`, `agents.cancel(id)` — **and its contract test**.
-- Implement the MCP server: register the available agents; run a task (sync, or async with status/streaming); enforce a per-agent **allowlist**, timeouts, and rate / cost limits.
-- Wire it into the v3.2 MCP client so the assistant can call agents mid-turn (tool-use loop) and fold the results back into its reply.
-- Guardrails: bound recursion / fan-out, **audit** every agent invocation, and keep it within the closed-access model.
-
-**DoD:** on request the assistant delegates a task to another agent via the `agents` MCP, gets the result, and folds it into its spoken/text reply; invocations are bounded, allowlisted, and audited.
-
-### v3.4 — Horoscope-temperament
+### v3.3 — Horoscope-temperament
 
 **Goal:** the character's tone and voice vary, livingly, day to day.
 
@@ -295,7 +281,7 @@ Fix a natal chart on the role; an astro engine computes daily transits into temp
 
 **DoD:** tone, voice, and the emotion face noticeably differ across days without degrading answer quality.
 
-### v3.5 — Persona integration
+### v3.4 — Persona integration
 
 **Goal:** one coherent living character, drawing on everything at once.
 
@@ -309,7 +295,7 @@ Combine the role canon, the day's temperament, recalled memory, and MCP results 
 
 **DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
 
-### v3.6 — Web search (optional)
+### v3.5 — Web search (optional)
 
 **Goal:** the assistant can look things up on the open internet, within strict bounds.
 
@@ -323,7 +309,7 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **DoD:** when enabled, the assistant answers from fresh web results **with sources**; when disabled, it has no internet access beyond the LLM's own knowledge.
 
-### v3.7 — Sprite face (animation)
+### v3.6 — Sprite face (animation)
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
@@ -336,6 +322,20 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.4, replace `Emo
 - On Echo Pyramid base hardware, drive the LED halo from the same `EmotionFrame`. (Artist "Lili" sprite pack: a later asset-only swap.)
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
+
+### v3.7 — Agent orchestration (MCP)
+
+**Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
+
+Add an `agents` MCP service so the assistant orchestrates external / sub-agents the same uniform way it uses every other tool (role / memory / kb / weather / web). The server's MCP client calls it; the orchestration policy and intelligence stay server-side, exposed to the agent as MCP tools — not a parallel mechanism.
+
+**Tasks:**
+- Define the `agents` MCP contract + tools — e.g. `agents.list()`, `agents.run(agent, task, args) → result`, `agents.status(id)`, `agents.cancel(id)` — **and its contract test**.
+- Implement the MCP server: register the available agents; run a task (sync, or async with status/streaming); enforce a per-agent **allowlist**, timeouts, and rate / cost limits.
+- Wire it into the v3.2 MCP client so the assistant can call agents mid-turn (tool-use loop) and fold the results back into its reply.
+- Guardrails: bound recursion / fan-out, **audit** every agent invocation, and keep it within the closed-access model.
+
+**DoD:** on request the assistant delegates a task to another agent via the `agents` MCP, gets the result, and folds it into its spoken/text reply; invocations are bounded, allowlisted, and audited.
 
 ---
 
@@ -376,7 +376,7 @@ Extends the v2.3 web console (behind the v2.5 admin login) with a **sessions vie
 
 ## v5 — Devices & presence
 
-The assistant runs across the **M5Stack board family** — the LED **halo** (Echo Pyramid), per-board input/UX (M5StickS3 gestures, Cardputer keyboard), and **camera/vision** — all over the same WS / `EmotionFrame` / Role contracts (a new board is per-board I/O glue, not a protocol change). The firmware detects each board's capabilities (halo, mic array, camera, keyboard, extra buttons) and uses them when present, degrading gracefully when absent. Core S3 also extends the **v3.7 sprite face** to its larger screen. Depends on: v2 (emoji face / WS contract) and v3.7 (sprite face, for the boards that render it).
+The assistant runs across the **M5Stack board family** — the LED **halo** (Echo Pyramid), per-board input/UX (M5StickS3 gestures, Cardputer keyboard), and **camera/vision** — all over the same WS / `EmotionFrame` / Role contracts (a new board is per-board I/O glue, not a protocol change). The firmware detects each board's capabilities (halo, mic array, camera, keyboard, extra buttons) and uses them when present, degrading gracefully when absent. Core S3 also extends the **v3.6 sprite face** to its larger screen. Depends on: v2 (emoji face / WS contract) and v3.6 (sprite face, for the boards that render it).
 
 ### v5.1 — Echo Pyramid base + emotion halo
 
@@ -444,11 +444,11 @@ Target config: **AtomS3R Camera Kit (OV3660, M12) stacked on the Echo Base** —
 
 **Goal:** support **M5 Core S3** — onboard mic, speaker, camera, and a 320×240 screen — as the richest board, extending the sprite face to the larger display.
 
-Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v5.4) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.7.
+Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v5.4) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.6.
 
 **Tasks:**
 - Add a `cores3` PlatformIO env; bring up onboard audio + camera via M5Unified; map the "talk action" to the touch screen.
-- Extend the v3.7 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
+- Extend the v3.6 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
 - Run the v5.4 vision path on the **onboard** camera (no external module).
 
 **DoD:** Core S3 runs the full voice + vision assistant with the richer, larger sprite face; all behavior comes over the same WS contract — no protocol change from the smaller boards.
@@ -521,7 +521,7 @@ A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: tex
 
 **Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
 
-A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.4, or the sprite from v3.7) on a canvas — so the browser is effectively a software device. Behind the v2.5 login.
+A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.4, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.5 login.
 
 **Tasks:**
 - Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.7).
@@ -552,10 +552,10 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.5.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
-- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.3.
-- `web_search` MCP contract (`web.search`, `web.fetch`) — v3.6.
-- Temperament contract (`temperament.today`) — v3.4.
-- `EmotionFrame` (emotion-face) contract — v2.4 (emoji); same contract reused by the LED halo — v5.1, and the sprite face — v3.7/v5.5.
+- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.7.
+- `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
+- Temperament contract (`temperament.today`) — v3.3.
+- `EmotionFrame` (emotion-face) contract — v2.4 (emoji); same contract reused by the LED halo — v5.1, and the sprite face — v3.6/v5.5.
 - `image` (vision) contract — v5.4; reused by Core S3's onboard camera — v5.5.
 - Media understanding (describe / translate) — `image` mode v6.1, `audio{pcm|clip}` v6.2, `video{frames+audio}` v6.3; unified `media` MCP tool — v6.
 - Name + Canon in the `Role` — v2.2.
@@ -582,4 +582,4 @@ The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M
 
 ## Deferred (beyond v0–v7)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.4 / halo v5.1 / sprite v3.7 & v5.5, boards per the Hardware roadmap (Echo Pyramid v5.1, M5StickS3 v5.2, Cardputer v1.1 & ADV v5.3, AtomS3R Camera v5.4, Core S3 v5.5), vision v5.4, web search v3.6. The artist "Lili" sprite pack remains a later asset-only swap over v3.7.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.4 / halo v5.1 / sprite v3.6 & v5.5, boards per the Hardware roadmap (Echo Pyramid v5.1, M5StickS3 v5.2, Cardputer v1.1 & ADV v5.3, AtomS3R Camera v5.4, Core S3 v5.5), vision v5.4, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)

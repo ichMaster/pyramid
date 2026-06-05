@@ -30,7 +30,7 @@ A private service for myself and a close circle. No public access: users and dev
 - Not a public service, not a mass product.
 - Not a complex cognitive architecture like the previous project: no planner-facets, no scored portrait, no background self-tuning. The **Canon is authored content**, not a computed model.
 - Deferred (not in any planned version yet): offline wake word, OPUS streaming, OTA, speaker recognition.
-- Planned but not early: the **emotion face** (from v2), **additional hardware** beyond Echo Base (Echo Pyramid v5.1, M5StickS3 v5.2, active listening v2.7, Cardputer v1.1 & ADV v5.3, AtomS3R Camera v5.4, Core S3 v5.5), **vision/camera** (v5.4), and **web search** (v3.6). Each lands in its version, not before.
+- Planned but not early: the **emotion face** (from v2), **additional hardware** beyond Echo Base (Echo Pyramid v5.1, M5StickS3 v5.2, active listening v2.7, Cardputer v1.1 & ADV v5.3, AtomS3R Camera v5.4, Core S3 v5.5), **vision/camera** (v5.4), and **web search** (v3.5). Each lands in its version, not before.
 
 ## Glossary
 

@@ -61,7 +61,7 @@ the shared mind already exists to share and observe.
 **v5 — Devices & presence.** The M5Stack **board family** — the LED **halo**
 (Echo Pyramid), M5StickS3 (two-button gestures + richer UI), Cardputer v1.1 &
 ADV (keyboard), **camera/vision** (AtomS3R Camera), and Core S3 (which extends
-the v3.7 sprite face to its bigger screen). See
+the v3.6 sprite face to its bigger screen). See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
 **v6 — Media understanding & translation.** Hand the assistant an **image,
