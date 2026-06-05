@@ -22,9 +22,8 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
 | **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search, **sprite face** | 🔜 planned |
 | **v4** | Multi-session & devices — Echo Pyramid+halo, M5StickS3, then **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
-| **v5** | Devices & presence — Cardputer, **camera/vision**, Core S3 | 🔜 planned |
-| **v6** | Media understanding & translation — **image / audio / video → text** (describe + translate) via a multimodal LLM | 🔜 planned |
-| **v7** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
+| **v5** | Devices & media — Cardputer, **camera/vision**, Core S3, then **media understanding** (**image / audio / video → text**, describe + translate) | 🔜 planned |
+| **v6** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
 ### v1 phases (done)
 
@@ -36,7 +35,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
   end-of-utterance (VAD), mid-turn Wi-Fi / per-stage-timeout recovery, per-turn
   latency + answer-time stats, and an optional on-screen transcript.
 
-## What's next (v2–v7)
+## What's next (v2–v6)
 
 **v2 — Server platform.** Our own backend (**WSS / FastAPI**) sits between the
 device and the AI; the ASR→LLM→TTS loop moves **server-side** and the device
@@ -59,18 +58,16 @@ devices at once, each its own session, all sharing one set of per-account
 resources — Role, pooled providers, and the v3 memory / MCP / temperament) +
 a **session-admin console**. The boards come first precisely to exercise the hub.
 
-**v5 — Devices & presence.** The rest of the M5Stack **board family** — the
+**v5 — Devices & media.** The rest of the M5Stack **board family** — the
 **Cardputer** (keyboard), **camera/vision** (AtomS3R Camera), and **Core S3**
-(extends the v3.6 sprite face to its bigger screen, voice + vision onboard). See
+(extends the v3.6 sprite face to its bigger screen, voice + vision onboard) — and
+then **media understanding**: hand the assistant an **image, audio clip, or
+short video** and it **describes / translates** it to text via a multimodal LLM,
+generalizing the v5.2 camera path to audio + video with cross-language
+translation (exposed as `image`/`audio`/`video` inputs + a `media` MCP tool). See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
-**v6 — Media understanding & translation.** Hand the assistant an **image,
-audio clip, or short video** and it **describes / translates** it to text via a
-multimodal LLM — generalizing the v5.2 camera path to audio + video, with
-cross-language translation. Server-side; exposed as `image`/`audio`/`video`
-inputs + a `media` MCP tool.
-
-**v7 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
+**v6 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
 (text / voice notes / photos), a **web voice client** that renders the face in
 the browser, and a **Meshtastic** LoRa bot — each a thin bridge to the server's
 Role/LLM pipeline (intelligence stays server-side).
