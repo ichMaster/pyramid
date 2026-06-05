@@ -14,7 +14,22 @@ from collections.abc import AsyncIterator
 import httpx
 
 from ..history import ChatMessage
+from ..protocol import ErrorCode
 from .base import ASRChunk, ProviderError
+
+
+def _http_code_hint(exc: httpx.HTTPError) -> str | None:
+    """Map an httpx error to an enumerated error.code hint (or None)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 429:
+            return ErrorCode.RATE_LIMITED
+        if status in (401, 403):
+            return ErrorCode.UNAUTHORIZED
+        return None
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError)):
+        return ErrorCode.SERVER_UNREACHABLE
+    return None
 
 
 class DeepgramASR:
@@ -44,7 +59,9 @@ class DeepgramASR:
                 body = resp.json()
             alt = body["results"]["channels"][0]["alternatives"][0]
             yield ASRChunk(alt.get("transcript", ""), is_final=True)
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"deepgram: {exc}", code=_http_code_hint(exc)) from exc
+        except (KeyError, IndexError, ValueError) as exc:
             raise ProviderError(f"deepgram: {exc}") from exc
 
 
@@ -86,7 +103,9 @@ class AnthropicLLM:
                             delta = evt.get("delta", {})
                             if delta.get("type") == "text_delta":
                                 yield delta.get("text", "")
-        except (httpx.HTTPError, ValueError) as exc:
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"anthropic: {exc}", code=_http_code_hint(exc)) from exc
+        except ValueError as exc:
             raise ProviderError(f"anthropic: {exc}") from exc
 
 
@@ -115,4 +134,4 @@ class ElevenLabsTTS:
                         if chunk:
                             yield chunk
         except httpx.HTTPError as exc:
-            raise ProviderError(f"elevenlabs: {exc}") from exc
+            raise ProviderError(f"elevenlabs: {exc}", code=_http_code_hint(exc)) from exc

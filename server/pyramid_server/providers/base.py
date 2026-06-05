@@ -43,4 +43,13 @@ class TTSProvider(Protocol):
 
 
 class ProviderError(RuntimeError):
-    """A provider call failed (network / API / decode)."""
+    """A provider call failed (network / API / decode).
+
+    ``code`` optionally carries an enumerated ``error.code`` hint (e.g.
+    ``rate_limited``, ``server_unreachable``) so the orchestrator can map the
+    failure precisely; ``None`` falls back to the stage's generic ``*_failed``.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
