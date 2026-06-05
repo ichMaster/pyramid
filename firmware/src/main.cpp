@@ -113,6 +113,14 @@ uint32_t g_errorSinceMs = 0;  // when we entered Error (for the auto-return dwel
 std::string g_userText;   // what the user said / typed
 std::string g_replyText;  // the assistant's reply
 
+// Answer-time stats: "request ready -> reply spoken" for the last turn, plus a
+// running session average. For voice the request is ready at button release; for
+// typed input, at handleTurn entry.
+uint32_t g_answerStartMs = 0;  // request-ready timestamp for the in-flight turn
+uint32_t g_lastAnswerMs = 0;   // last answer's total time (ms)
+uint32_t g_answerCount = 0;    // answers counted this session
+uint64_t g_answerSumMs = 0;    // sum of answer times (for the average)
+
 // State -> LCD background color (firmware-only; the label lives in states.h).
 uint16_t stateColor(pyramid::TurnState s) {
   switch (s) {
@@ -160,6 +168,12 @@ void renderTranscript() {
 
   M5.Display.setTextColor(statusTextColor(g_state));
   M5.Display.printf("[%s]\n", pyramid::label(g_state));
+  if (g_answerCount > 0) {  // last + average answer time (request-ready -> spoken)
+    const uint32_t avg = static_cast<uint32_t>(g_answerSumMs / g_answerCount);
+    M5.Display.setTextColor(TFT_YELLOW);
+    M5.Display.printf("last %u.%us avg %u.%us\n", g_lastAnswerMs / 1000,
+                      (g_lastAnswerMs % 1000) / 100, avg / 1000, (avg % 1000) / 100);
+  }
   if (!g_userText.empty()) {
     M5.Display.setTextColor(TFT_WHITE);
     M5.Display.printf("> %s\n", g_userText.c_str());
@@ -710,6 +724,10 @@ void handleTurn(const std::string& userText) {
     return;
   }
   logf("thinking...");
+  // Answer-time clock: for typed input the request is ready now; for voice,
+  // voiceTurn already set g_answerStartMs to the button-release time (so the
+  // voice answer time includes ASR).
+  if (!g_voiceActive) g_answerStartMs = millis();
   g_userText = userText;  // for the optional on-screen transcript (SHOW_TRANSCRIPT)
   g_replyText.clear();
   applyEvent(pyramid::TurnEvent::Think);  // -> Thinking (renders the user line)
@@ -743,6 +761,14 @@ void handleTurn(const std::string& userText) {
     if (g_voiceActive) g_stamps.ttsMs = millis() - ttsStart;
     if (spoke) {
       playbackCaptured();  // plays g_pcm filled by ttsFetch (mic<->spk switch)
+      // Answer delivered: record total time (request-ready -> first audio) + avg.
+      g_lastAnswerMs = g_stamps.speakMs - g_answerStartMs;
+      g_answerCount++;
+      g_answerSumMs += g_lastAnswerMs;
+      const uint32_t avg = static_cast<uint32_t>(g_answerSumMs / g_answerCount);
+      Serial.printf("[answer] last %u.%us  avg %u.%us  (n=%u)\n", g_lastAnswerMs / 1000,
+                    (g_lastAnswerMs % 1000) / 100, avg / 1000, (avg % 1000) / 100,
+                    static_cast<unsigned>(g_answerCount));
     } else {
       logf("tts failed (%s) — reply shown as text only", terr.c_str());
       applyEvent(pyramid::TurnEvent::Done);  // degraded to text -> Idle
@@ -809,6 +835,9 @@ void voiceTurn() {
     rePrompt("low confidence");
     return;
   }
+  // Answer-time clock starts at button release, so the voice answer time covers
+  // ASR + LLM + TTS (handleTurn won't reset it while g_voiceActive).
+  g_answerStartMs = g_stamps.recEndMs;
   handleTurn(transcript);
 }
 
