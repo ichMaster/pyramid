@@ -295,6 +295,20 @@ By now there are several device types (and v4 will add Telegram / web / mesh). G
 
 **DoD:** multiple devices/clients are connected and conversing at the same time, each in its own session; they share one Role, one memory/knowledge set, one daily temperament, and pooled provider clients; a change on one device (role/setting/remembered fact) is visible to the others; one busy client doesn't block the rest.
 
+### v2.12 — Session administration console
+
+**Goal:** an admin UI to see and manage the live sessions of the multi-session hub, and watch the shared resources behind them.
+
+Extends the v2.3 web console (behind the v2.4 admin login) with a **sessions view** over the v2.11 hub: who is connected, what each is doing, control over them, and visibility into the shared per-account state.
+
+**Tasks:**
+- **Live sessions list:** each connected client — account / device, **channel** (device / web / Telegram / mesh), **state** (idle/listening/thinking/replying/offline), uptime, last activity, and the current/last turn with per-turn latency + tokens.
+- **Per-session actions:** disconnect, **restart** (send `restart`), revoke the device token (v2.4), mute, and force a role reload (`config_updated`).
+- **Shared-resources panel:** the active Role/Canon, memory item count/size, today's temperament, **provider usage vs rate-limits**, concurrent-session count vs the cap, and cache stats — the v2.11 shared layer made observable.
+- **Live updates + admin API:** the console subscribes to session events (WS/SSE); an authenticated **admin-only API** (`GET /sessions`, `POST /sessions/{id}/disconnect`, `/restart`, …) backs the UI, with rate-limits and an **audit log** of session lifecycle + admin actions.
+
+**DoD:** an admin sees all live sessions in real time, can inspect one and disconnect/restart it, and can view the shared-resource state; every admin action is authenticated and audited.
+
 ---
 
 ## v3 — Memory, horoscope-temperament, and MCP
@@ -476,6 +490,7 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - Telegram bridge (Bot API: text / voice note / photo) — v4.1.
 - Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.4 auth) — v4.2.
 - Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v4.3.
+- Admin session API (`GET /sessions`, `POST /sessions/{id}/disconnect|restart`, live events) — v2.12.
 
 ## Hardware roadmap
 
