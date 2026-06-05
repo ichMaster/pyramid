@@ -250,18 +250,18 @@ M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker,
 
 **DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
 
-### v2.9 — Cardputer ADV (keyboard input)
+### v2.9 — Cardputer (v1.1 & ADV) — keyboard input
 
-**Goal:** run on the **M5 Cardputer ADV**, adding on-device typed input (keyboard, Enter to send) alongside voice.
+**Goal:** run on the **M5 Cardputer** — both **v1.1** and **ADV** — adding on-device typed input (keyboard, Enter to send) alongside voice.
 
-Cardputer ADV is an ESP32-S3 board with a built-in **keyboard**, a 240×135 screen, and a mic + speaker — it speaks the same WSS/audio contract, and its keyboard makes text a first-class **on-device** input (not just the serial debug path).
+Both are ESP32-S3 (StampS3A) boards with a 56-key **keyboard**, a 240×135 screen, and a real mic + amplified speaker — they speak the same WSS/audio contract, and the keyboard makes text a first-class **on-device** input (not just the serial debug path). They differ only in **audio hardware**: **v1.1** = SPM1423 PDM mic + **NS4168** I2S speaker amp; **ADV** = **ES8311** codec (as Echo Base) + NS4150B + 1 W speaker + 3.5 mm jack + IMU. M5Unified abstracts both via `M5.Mic`/`M5.Speaker` + board detection, so it's one codebase.
 
 **Tasks:**
-- Add a `cardputer-adv` PlatformIO env; bring up its mic/speaker via M5Unified and lay out the UI for 240×135.
+- Add `cardputer` (v1.1) and `cardputer-adv` PlatformIO envs; bring up each board's mic/speaker via M5Unified (PDM+NS4168 vs ES8311) and lay out the UI for 240×135.
 - Reuse the **v2.8 input abstraction** and extend it for the keyboard: type and press **Enter** to send a text turn (a "send text" action), and a key for push-to-talk. AtomS3R keeps BtnA; M5StickS3 keeps its two-button gestures.
-- Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change.
+- Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
 
-**DoD:** on Cardputer ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R and Cardputer through the input/layout abstraction.
+**DoD:** on **both** Cardputer v1.1 and ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R, M5StickS3, and Cardputer through the input/layout abstraction.
 
 ---
 
@@ -405,7 +405,7 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 | AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
 | AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
 | M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · **BtnA+BtnB** (gestures) | all-in-one (no base), 2-button gestures, richer UI | **v2.8** |
-| Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.9** |
+| Cardputer **v1.1 & ADV** | ESP32-S3 (StampS3A) | v1.1: SPM1423 mic + NS4168 spk · ADV: ES8311 + 1 W spk | 240×135 · **keyboard** | on-device **typed input** | **v2.9** |
 | AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
 | Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
 
