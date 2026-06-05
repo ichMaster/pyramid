@@ -335,17 +335,17 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `Emo
 
 ### v3.7 — Camera input (vision)
 
-**Goal:** the assistant can **see** — capture an image on camera hardware and answer about it.
+**Goal:** the assistant can **see as well as hear** — capture an image and answer a spoken question about it.
 
-Introduce on-device **camera capture** on the **AtomS3R Camera Kit** (OV3660, M12) and a vision path: the device sends a frame to the server, which asks a **multimodal LLM** and speaks the answer. Intelligence stays off-device — the device captures and streams the image; the server interprets.
+Target config: **AtomS3R Camera Kit (OV3660, M12) stacked on the Echo Base** — camera on top, Echo Base audio below — so the device has both mic/speaker **and** camera, i.e. **voice + vision**. A turn can carry speech and an image together: the device sends the frame to the server, which asks a **multimodal LLM** and speaks the answer. Intelligence stays off-device — the device captures and streams; the server interprets.
 
 **Tasks:**
-- Add an `atoms3r-camera` PlatformIO env; capture a still JPEG frame from the OV3660.
-- Add an **`image`** message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**: device → `image{jpeg}` (on a "look" trigger or attached to a turn); the server forwards it to a multimodal LLM with the Role/Canon and returns a spoken reply.
-- Server: a vision turn (image + optional prompt) → multimodal LLM → TTS, reusing the v2 turn pipeline and history.
-- Verify camera + audio hardware coexistence; document the supported combo (the Camera Kit's audio capability vs a separate Echo base).
+- Add an `atoms3r-camera` PlatformIO env (AtomS3R + Camera Kit + Echo Base); capture a still JPEG frame from the OV3660 alongside the existing audio path.
+- Add an **`image`** message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**: device → `image{jpeg}` (on a "look" trigger or attached to a voice turn); the server forwards it to a multimodal LLM with the Role/Canon and returns a spoken reply.
+- Server: a **voice + vision** turn (transcript + image) → multimodal LLM → TTS, reusing the v2 turn pipeline and history.
+- Trigger: a button/keyword to attach the current frame to the next utterance ("what do you see?").
 
-**DoD:** point the camera at something, ask "what do you see?", and hear a spoken description; the `image` path has a contract test and keeps vision/LLM off-device.
+**DoD:** ask aloud "what do you see?", and the device captures a frame and speaks a description of it; the `image` path has a contract test and keeps vision/LLM off-device.
 
 ### v3.8 — Core S3 (all-in-one: camera + bigger screen)
 
@@ -384,7 +384,7 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 | AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
 | AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
 | Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.8** |
-| AtomS3R Camera Kit (OV3660, M12) | ESP32-S3 (same) | via Echo audio | 128×128 · BtnA + **camera** | **vision** | **v3.7** |
+| AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
 | Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
 | M5StickS3 (ESP32-S3 Mini) | ESP32-S3 | ⚠️ verify mic/speaker (prior Stick had only a buzzer) | 135×240 · BtnA/B | — | candidate — unscheduled until real audio out is confirmed |
 

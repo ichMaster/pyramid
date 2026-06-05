@@ -131,7 +131,7 @@ Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilitie
 - **v1 target — AtomS3R + Echo Base:** ESP32-S3, 128×128 LCD, one button, **ES8311** codec (single mic + speaker). No LED halo, no mic array. (Whether the board exposes usable **PSRAM** is board-dependent — verify and enable it in `platformio.ini` if present; it relaxes the audio-buffer and face-asset SRAM limits hit in v1.2.)
 - **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v2.7:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
 - **Cardputer ADV — v2.8:** ESP32-S3, 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + speaker.
-- **AtomS3R Camera Kit (OV3660, M12) — v3.7:** same AtomS3R compute; adds a **camera** for the vision path (the `image` contract). Verify camera + Echo audio coexistence.
+- **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v3.7:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
 - **Core S3 / CoreS3 SE — v3.8:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
 - **M5StickS3 (ESP32-S3 Mini) — candidate, unscheduled:** verify it has a usable mic + speaker (a passive buzzer can't render TTS); a port depends on real audio output.
 
