@@ -252,7 +252,7 @@ When **active listening** is on, the device reopens the mic right after playback
 
 ## v3 — Intelligence & MCP
 
-The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.5 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, agents, and external services all plug in the same way.
+The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including a think-only **inner advisor** and **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.5 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, advisor, agents, and external services all plug in the same way.
 
 ### v3.1 — Long-term memory
 
@@ -325,7 +325,37 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **DoD:** when enabled, the assistant answers from fresh web results **with sources**; when disabled, it has no internet access beyond the LLM's own knowledge.
 
-### v3.6 — Sprite face (animation)
+### v3.6 — Inner advisor (synchronous)
+
+**Goal:** the role can consult a private, **think-only** advisor mid-turn and fold its reasoning into the reply — in the role's own voice.
+
+Add an `advisor` MCP service: a single tool `advisor.ask` that runs a question against a configured LLM (e.g. Claude Opus 4.8) with a short framing prompt, returning reasoning the role uses to think more deeply. The advisor only *thinks* — no tools, files, shell, or web (web is the separate `web_search` service, v3.5). This is **distinct from the v3.9 `agents` service**, which orchestrates *acting* agents; the advisor takes no actions. One voice: only the role ever speaks to the user; the advisor's answer is internal input, never spoken verbatim unless the role chooses to quote a line. Off by default, per-role toggle. See ADVISOR.md.
+
+**Tasks:**
+- Add the `advisor` MCP service + `advisor.ask(question, context="") → {answer}` (ARCHITECTURE §MCP) **and its contract test**.
+- Framing system prompt parameterized by the role's **Name** ("you are <Name>'s private advisor; concise and direct; your answer is input for <Name>, not shown to the user verbatim"); the advisor model is configurable (`Role.advisor_model`, may differ from the main LLM).
+- Per-role toggle in the console (`Role.advisor`), **off by default**; rate-limit + log per account.
+- Treat the answer as **internal data, never a command** — the orchestrator/persona never execute instructions embedded in it (the v3.5 untrusted-input convention).
+- Synchronous call inside a turn (seconds), with an optional in-character filler ("дай подумаю секунду").
+
+**DoD:** with the advisor enabled, the role consults it during a turn and weaves the result into its own reply in its own voice; disabled → the tool is unavailable; the answer never reaches the user verbatim unless the role quotes it. Depends on: v3.2 (MCP layer), v3.4 (persona integration); reuses v3.5's untrusted-input handling.
+
+### v3.7 — Asynchronous advisor (open loop + proactive turn)
+
+**Goal:** the role consults the advisor **in the background without blocking**, keeps the conversation going, and **proactively brings the result back** when it is ready.
+
+Stage 2 of the advisor: a fire-and-forget request, a server-side **open-loop store** holding the result, and a **proactive turn** — the server *initiating* a spoken turn when the answer arrives, rather than only replying after a button press / utterance. The v2.1 thin client is already event-driven (it plays server-pushed `reply` / `tts_audio` whenever they arrive), so the new work is server-side, plus coordinating the push with the **half-duplex** constraint (never speak while the device is listening/speaking — relates to active listening, v2.8).
+
+**Tasks:**
+- Async tool surface: `advisor.ask_async(question, context="") → {id}`, `advisor.poll(id) → {status, summary?, full_answer?}`, `advisor.close(id)`; open-loop record `{id, question, full_answer, summary, status: open|answered|closed, ts}`.
+- Run the advisor on a server **background task** (asyncio); on completion mark the loop `answered` and trigger a proactive turn.
+- **Proactive-turn primitive:** the server initiates a turn (reply + streamed TTS) to an **idle, connected** session, gated by the half-duplex rule; add/confirm the server-initiated-turn path in the WS contract (ARCHITECTURE §WS) **and its contract test**.
+- Bring-back behavior: the role summarizes `full_answer` in its own voice; "розкажи більше" expands from the **stored** `full_answer` without calling the advisor again; the expansion is dialogic, not a lecture.
+- Timeout / failure: an unanswered loop times out → `closed` with a graceful in-character fallback; bound the number of open loops per session.
+
+**DoD:** the role poses a question to the advisor mid-conversation without blocking, you keep talking, and when the answer is ready the assistant **proactively returns** with a short summary in its voice; "розкажи більше" expands from the held answer; an idle device receives the proactive turn cleanly and the half-duplex rule is honored; a timed-out loop degrades gracefully. Depends on: v3.6 (the `advisor` service), v3.2 (MCP); coordinates with the half-duplex / active-listening model (v2.8).
+
+### v3.8 — Sprite face (animation)
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
@@ -339,7 +369,7 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `Emo
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
 
-### v3.7 — Agent orchestration (MCP)
+### v3.9 — Agent orchestration (MCP)
 
 **Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
 
@@ -427,7 +457,7 @@ Extends the v2.3 web console (behind the v2.6 admin login) with a **sessions vie
 
 ## v5 — Devices & media
 
-The rest of the **M5Stack board family** plus **media understanding**. The boards: the **Cardputer** (keyboard input), the **AtomS3R Camera** (vision), and **Core S3** (onboard camera + bigger screen, extends the v3.6 sprite face, voice + vision onboard) — all over the same WS / `EmotionFrame` / Role contracts (a new board is per-board I/O glue, not a protocol change; capabilities detected and used when present). On top of the camera + mic, the assistant turns **media into text** — describe and/or **translate** an image, audio clip, or short video via a **multimodal LLM** (new `image` / `audio` / `video` WS inputs + a `media` MCP tool), generalizing the camera vision turn to audio and video. Intelligence stays **server-side**; the device only captures and streams. (Echo Pyramid + M5StickS3 were brought up earlier in v4.) Depends on: v2 (emoji face / WS contract), v3 (MCP + sprite face).
+The rest of the **M5Stack board family** plus **media understanding**. The boards: the **Cardputer** (keyboard input), the **AtomS3R Camera** (vision), and **Core S3** (onboard camera + bigger screen, extends the v3.8 sprite face, voice + vision onboard) — all over the same WS / `EmotionFrame` / Role contracts (a new board is per-board I/O glue, not a protocol change; capabilities detected and used when present). On top of the camera + mic, the assistant turns **media into text** — describe and/or **translate** an image, audio clip, or short video via a **multimodal LLM** (new `image` / `audio` / `video` WS inputs + a `media` MCP tool), generalizing the camera vision turn to audio and video. Intelligence stays **server-side**; the device only captures and streams. (Echo Pyramid + M5StickS3 were brought up earlier in v4.) Depends on: v2 (emoji face / WS contract), v3 (MCP + sprite face).
 
 ### v5.1 — Cardputer (v1.1 & ADV) — keyboard input
 
@@ -460,11 +490,11 @@ Target config: **AtomS3R Camera Kit (OV3660, M12) stacked on the Echo Base** —
 
 **Goal:** support **M5 Core S3** — onboard mic, speaker, camera, and a 320×240 screen — as the richest board, extending the sprite face to the larger display.
 
-Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v5.2) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.6.
+Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v5.2) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.8.
 
 **Tasks:**
 - Add a `cores3` PlatformIO env; bring up onboard audio + camera via M5Unified; map the "talk action" to the touch screen.
-- Extend the v3.6 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
+- Extend the v3.8 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
 - Run the v5.2 vision path on the **onboard** camera (no external module).
 
 **DoD:** Core S3 runs the full voice + vision assistant with the richer, larger sprite face; all behavior comes over the same WS contract — no protocol change from the smaller boards.
@@ -531,7 +561,7 @@ A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: tex
 
 **Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
 
-A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.5, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.6 login.
+A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.5, or the sprite from v3.8) on a canvas — so the browser is effectively a software device. Behind the v2.6 login.
 
 **Tasks:**
 - Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.8).
@@ -562,10 +592,11 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.6.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
-- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.7.
+- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.9.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
+- `advisor` MCP contract (`advisor.ask`) — v3.6; async (`advisor.ask_async` / `poll` / `close`) + the server-initiated **proactive turn** — v3.7. `Role.advisor` (+ `advisor_model`) — v3.6. See ADVISOR.md.
 - Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.6/v5.3.
+- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.8/v5.3.
 - `image` (vision) contract — v5.2; reused by Core S3's onboard camera — v5.3.
 - Media understanding (describe / translate) — `image` mode v5.4, `audio{pcm|clip}` v5.5, `video{frames+audio}` v5.6; unified `media` MCP tool — v5.
 - Name + Canon in the `Role` — v2.2.
@@ -593,4 +624,4 @@ The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M
 
 ## Deferred (beyond v0–v6)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.5 / halo v4.1 / sprite v3.6 & v5.3, boards per the Hardware roadmap (Echo Pyramid v4.1, M5StickS3 v4.2, Cardputer v1.1 & ADV v5.1, AtomS3R Camera v5.2, Core S3 v5.3), vision v5.2, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.5 / halo v4.1 / sprite v3.8 & v5.3, boards per the Hardware roadmap (Echo Pyramid v4.1, M5StickS3 v4.2, Cardputer v1.1 & ADV v5.1, AtomS3R Camera v5.2, Core S3 v5.3), vision v5.2, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.8.)

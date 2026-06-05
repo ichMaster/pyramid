@@ -78,6 +78,7 @@ screen, no persona logic.
 - `knowledge_base`: `kb.search(query, k) → passages[]`
 - `weather`: `weather.get(location) → {...}`
 - `web_search` (v3, off by default per role): `web.search(query, k) → results[{title, url, snippet, id}]`, `web.fetch(result_id) → {url, title, text}` — `fetch` is restricted to ids from this turn's prior `search` results; page text is **untrusted data** (never instructions). See WEB_SEARCH.md.
+- `advisor` (v3.6, off by default per role): `advisor.ask(question, context) → {answer}` — a **think-only** LLM consult (no tools, web, files, or actions); the answer is **internal input for the role, never executed and never spoken verbatim**. v3.7 adds the async surface `advisor.ask_async() → {id}`, `advisor.poll(id)`, `advisor.close(id)` plus a server-initiated **proactive turn** when the result is ready. Distinct from `agents` (which orchestrates *acting* agents). See ADVISOR.md.
 - `astro` (internal): `temperament.today(role_id) → {energy, warmth, verbosity, speech_speed, pitch}`
 
 ### LLM call
@@ -87,7 +88,7 @@ screen, no persona logic.
 ### Data model
 - `Account{id, login, pass_hash, created_at}` — `pass_hash` via argon2id.
 - `Device{id, token, account_id, role_id, status, last_seen}` — an account may own several devices.
-- `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, recent, longterm}` (`recent` = a persisted rolling summary across sessions, v2.4; `longterm` = semantic memory via the `memory` MCP service, v3); `web_search` is an off-by-default bool (v3).
+- `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, recent, longterm}` (`recent` = a persisted rolling summary across sessions, v2.4; `longterm` = semantic memory via the `memory` MCP service, v3); `web_search` is an off-by-default bool (v3); `advisor` is an off-by-default bool with an optional `advisor_model` (the think-only inner advisor, v3.6 — see ADVISOR.md).
 - `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` (from v2) — emitted per turn/state change; `emotion` is a small fixed enum (see §Emotion face / EMOTION_FACE.md), `intensity` 0–1. Decided server-side, rendered on the device.
 - `Session{id, device_id, account_id, started_at, ended_at}` — one connection / turn-loop.
 - `Message{id, session_id, role:"user"|"assistant", text, ts}` — short rolling history; window/truncation policy in §Sessions and history.
@@ -105,6 +106,8 @@ button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop
 ```
 
 Text path (v0 / serial): `text_in` → LLM → `reply` / `text_out`. End-of-utterance in v1 is the button release; v1 later adds pause-based VAD bounded by `Role.recog_patience`.
+
+**Proactive turn (from v3.7).** Normally a turn is device-initiated. The async advisor (ADVISOR.md) lets the **server initiate** a turn — emit `reply` + streamed `tts_audio` to an **idle, connected** session when a held result is ready — reusing the same server→device messages (no new frame type). It is gated by the half-duplex rule (never while the device is listening/speaking; coordinates with active listening, v2.8); the v2.1 thin client already plays server-pushed frames whenever they arrive.
 
 **Streaming for latency.** The pipeline streams at every stage. ASR emits `asr_partial` interims and one final `asr`. The LLM streams token deltas (the `reply` deltas); the server buffers them to **clause/sentence boundaries** and hands each completed phrase to TTS, so speech starts before the LLM finishes. TTS returns audio incrementally, sent as `tts_audio` frames and closed by `tts_end`. Target first-audio < ~1.5 s after `listen_stop`; per-stage budgets are in §Error handling and resilience.
 

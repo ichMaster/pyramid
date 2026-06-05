@@ -62,7 +62,7 @@ a **session-admin console**. The boards come first precisely to exercise the hub
 
 **v5 — Devices & media.** The rest of the M5Stack **board family** — the
 **Cardputer** (keyboard), **camera/vision** (AtomS3R Camera), and **Core S3**
-(extends the v3.6 sprite face to its bigger screen, voice + vision onboard) — and
+(extends the v3.8 sprite face to its bigger screen, voice + vision onboard) — and
 then **media understanding**: hand the assistant an **image, audio clip, or
 short video** and it **describes / translates** it to text via a multimodal LLM,
 generalizing the v5.2 camera path to audio + video with cross-language
