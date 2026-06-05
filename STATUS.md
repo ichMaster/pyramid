@@ -38,7 +38,10 @@ Our own backend (**WSS / FastAPI**) sits between the device and the AI; the
 ASR→LLM→TTS loop moves **server-side** and the device becomes a streaming client.
 The persona becomes a configurable **Role** (including its **Name** and authored
 **Canon**), edited in a **web console**; access is closed (accounts, device
-activation by code, allowlist), and the device gains its first **emoji face**.
+activation by code, allowlist). The server is **developed/tested locally** (the
+device points at a LAN server) through v2.4, then **deployed to public hosting
+(Fly.io) with automated CI/CD** in v2.5; the device gains its first **emoji
+face** in v2.6.
 
 Carried forward into v2 from the v1 work:
 - **Latency wins** that need server-side pacing — streaming ASR, sentence-streaming

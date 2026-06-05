@@ -172,19 +172,35 @@ A minimal web UI edits the role fields and persists them; saving signals the dev
 
 ### v2.4 — Closed access
 
-**Goal:** a private online service — only known devices and users get in.
+**Goal:** a private, access-controlled service — only known devices and users get in.
 
-Deploy behind TLS, add console login, bind devices by activation code, and reject everything not on the allowlist.
+Run behind TLS, add console login, bind devices by activation code, and reject everything not on the allowlist. Developed and tested **locally / on the LAN** (the device points at a local server) — the public host + automated deploy come in v2.5.
 
 **Tasks:**
-- Deploy online: HTTPS/WSS + TLS behind a reverse proxy (nginx/Caddy); `dev`/`prod` split via `.env`.
+- Be deployment-ready: TLS-terminated HTTPS/WSS and a `dev`/`prod` split via `.env` (the public host + CI/CD land in v2.5).
 - Add accounts (`pass_hash` = argon2id) and console login (cookie/JWT); rate-limit login and `/activate`.
 - Implement device activation: `POST /activate {device_id} → {code}` (single-use, short TTL); admin binds the code; device stores its `device_token` in NVS.
 - Enforce the allowlist: unknown `device_token` → `error{unauthorized}` and the socket closes; support token revocation.
 
 **DoD:** only authorized devices and users have access; an unbound device is rejected.
 
-### v2.5 — Emotion channel + emoji face
+### v2.5 — Deployment & hosting (CI/CD)
+
+**Goal:** the server runs on public hosting and ships automatically — and because it comes after v2.4, the first public exposure already enforces accounts + activation + the allowlist.
+
+Containerize the server and add a pipeline that builds, tests, and deploys it to **Fly.io** on a tagged release. Through v2.1–v2.4 the device talked to a **local / LAN** server; now it connects to a live **WSS** endpoint over real TLS. Fly.io fits this shape: containers, native WebSockets, a **persistent volume** for the SQLite DB + KB files, and managed TLS.
+
+**Tasks:**
+- **Containerize** `/server` (Dockerfile: slim Python + uvicorn; the FastAPI app also serves the console, so one image). Pin deps; keys/`.env` are never baked into the image.
+- **Fly.io app:** a small always-on machine, a **persistent volume** for `pyramid.db` + the knowledge-base files, managed TLS on a real domain, and secrets (LLM/ASR/TTS keys, allowlist) via `fly secrets`.
+- **GitHub Actions CD:** extend the existing CI (lint + `pytest`) with a deploy job triggered on a **version tag** (or manual `workflow_dispatch`) — build → push image to GHCR → `flyctl deploy` (auth via a `FLY_API_TOKEN` secret). `main` stays green; deploys stay deliberate.
+- **Data & migrations:** a startup schema init/migration; the SQLite volume persists across deploys; document backup/restore.
+- **Cutover:** point the device's WSS endpoint at the live domain and **retire `setInsecure()`** (validate the real certificate); health check + platform rollback.
+- *(Optional)* a `staging` Fly app for a pre-prod smoke test — skip if not needed at this scale.
+
+**DoD:** pushing a tagged server release auto-builds, tests, and deploys to Fly.io; the device connects to the live WSS endpoint over TLS; data persists across deploys; a rollback is one command.
+
+### v2.6 — Emotion channel + emoji face
 
 **Goal:** the character shows how it feels — a first on-screen emotion face, decided by the server.
 
@@ -279,7 +295,7 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
-Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
+Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
 
 **Tasks:**
 - Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
@@ -300,7 +316,7 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `Emo
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the sprite face — v3.6.
+- `EmotionFrame` (emotion-face) contract — v2.6 (emoji); same contract reused by the sprite face — v3.6.
 - Name + Canon in the `Role` — v2.2.
 
 ## Hardware roadmap
@@ -309,4 +325,4 @@ The device is a family, not one SKU (ARCHITECTURE §Hardware variants): **v1 →
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, and **web search** are no longer deferred — they are scheduled: face emoji v2.5 / sprite v3.6, boards per the Hardware roadmap, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / sprite v3.6, boards per the Hardware roadmap, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)

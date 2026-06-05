@@ -15,7 +15,7 @@ This document defines a single emotion contract emitted by the **server** and a
 `IFaceRenderer` interface, one `EmotionFrame`, and one emotion enum — so improving
 the look is a renderer swap, not a rewrite:
 
-- **Emoji (first — v2.5):** emotion → an emoji / simple glyph. No assets. Proves the channel.
+- **Emoji (first — v2.6):** emotion → an emoji / simple glyph. No assets. Proves the channel.
 - **Icon sprites (v3.6):** procedural layered sprites + idle loop + crossfade + lip-sync.
 - **Lili / artist sprites (later):** the same layer scheme filled with authored art — an asset-only swap.
 
@@ -303,7 +303,7 @@ layers, animation frames, sizing, palette, atlas, manifest, and previews.
 
 - **v1 — no face.** Voice only; the LCD shows text turn-states. (The face needs a
   server to decide emotion; there is none until v2.)
-- **v2.5 — emotion channel + emoji face.** The server's emotion engine emits an
+- **v2.6 — emotion channel + emoji face.** The server's emotion engine emits an
   `EmotionFrame` from Canon + mood; the device renders the **emoji** tier. The
   `EmotionFrame` contract + emotion enum + `IFaceRenderer` (and the WS contract
   test) are locked here.
@@ -322,7 +322,7 @@ layers, animation frames, sizing, palette, atlas, manifest, and previews.
 
 - `specification/EMOTION_FACE.md` (this file)
 - server (v2+): emotion engine emits `EmotionFrame` on the response path (WS `emotion` message)
-- firmware: `IFaceRenderer` + `EmojiRenderer` (v2.5), `IconRenderer` (v3.6),
+- firmware: `IFaceRenderer` + `EmojiRenderer` (v2.6), `IconRenderer` (v3.6),
   `LiliRenderer` (later), asset loader; LED-halo driver only on Echo-Pyramid-base hardware
 - `assets/face/icon_v1/` and `assets/face/lili_v1/` (manifest + layers/atlas)
 
