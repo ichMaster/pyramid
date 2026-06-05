@@ -5,7 +5,7 @@ device is **thin** — I/O and a status screen only; no persona/LLM/memory logic
 lives here (ARCHITECTURE §Components). Built with **PlatformIO** (from v1.1; v0
 used the Arduino IDE — the sketch `pyramid/pyramid.ino` moved to `src/`).
 
-**Deep dive:** [docs/firmware/ARCHITECTURE.md](../docs/firmware/ARCHITECTURE.md)
+**Deep dive:** [docs/firmware/FIRMWARE_ARCHITECTURE.md](../docs/firmware/FIRMWARE_ARCHITECTURE.md)
 (structure, data flow, turn lifecycle) and
 [docs/firmware/INTERNALS.md](../docs/firmware/INTERNALS.md) (line-by-line
 walkthrough + per-file inventory).

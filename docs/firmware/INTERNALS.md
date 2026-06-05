@@ -1,7 +1,7 @@
 # Firmware Internals (v1.4)
 
 A line-by-line walkthrough of how the firmware works, with code references, plus
-a complete file inventory. Pair with [ARCHITECTURE.md](ARCHITECTURE.md) for the
+a complete file inventory. Pair with [FIRMWARE_ARCHITECTURE.md](FIRMWARE_ARCHITECTURE.md) for the
 structural view. Paths link into [`firmware/src/`](../../firmware/src/).
 
 ---
