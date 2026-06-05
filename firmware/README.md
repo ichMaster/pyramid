@@ -1,116 +1,130 @@
 # Pyramid firmware
 
-AtomS3R + Echo Base firmware for the Pyramid voice AI assistant. The device is
-**thin** — I/O and a status screen only; no persona/LLM/memory logic lives here
-(ARCHITECTURE §Components). Built with **PlatformIO** (from v1.1; v0 used the
-Arduino IDE — the sketch `pyramid/pyramid.ino` moved to `src/main.cpp`).
+AtomS3R + Atomic Echo Base firmware for the Pyramid voice AI assistant. The
+device is **thin** — I/O and a status screen only; no persona/LLM/memory logic
+lives here (ARCHITECTURE §Components). Built with **PlatformIO** (from v1.1; v0
+used the Arduino IDE — the sketch `pyramid/pyramid.ino` moved to `src/`).
 
 ## Layout
+
+The firmware glue is split into small modules (in `namespace app`) that share a
+little mutable state via `app_state`; the pure, Arduino-free logic lives in
+header-only units shared with the host tests.
 
 ```
 firmware/
   platformio.ini        # PlatformIO project: atoms3r (device) + native (host tests)
   src/
-    main.cpp            # the firmware: board + Wi-Fi + serial + LLM glue (was pyramid.ino)
-    line_reader.h       # pure: non-blocking line reader (host-testable)
-    serial_protocol.h   # pure: text_in parse (host-testable)
-    chat_api.h          # pure: LLM request build / reply parse / retry class (host-testable)
-    history.h           # pure: short rolling conversation history (host-testable)
-    backoff.h           # pure: capped exponential backoff (host-testable)
-    sse.h               # pure: chunked + SSE streaming decode (host-testable)
+    main.cpp            # setup() / loop()
+    app_state.h/.cpp    # shared globals + tuning constants
+    log.h               # status logging (app::logf, gated by DEBUG_SERIAL)
+    ui.h/.cpp           # turn-state machine + LCD (state screen / transcript)
+    net.h/.cpp          # Wi-Fi bring-up + non-blocking reconnect supervisor
+    audio_io.h/.cpp     # Echo Base mic capture + speaker playback (ES8311 / I2S)
+    cloud.h/.cpp        # LLM (Anthropic) / ASR (Deepgram) / TTS (ElevenLabs) HTTPS clients
+    turn.h/.cpp         # ASR->LLM->TTS orchestration + mid-turn failure recovery
     config.example.h    # config template — copy to config.h (gitignored)
-  test/
-    test_line_reader.cpp  # host unit test for the serial logic
-    test_chat_api.cpp     # host unit test for the LLM JSON build/parse + retry
-    test_history.cpp      # host unit test for history windowing
-    test_backoff.cpp      # host unit test for the backoff schedule
-    test_sse.cpp          # host unit test for the streaming decode pipeline
+    # --- pure, host-testable headers ---
+    line_reader.h       # non-blocking line reader
+    serial_protocol.h   # text_in parse
+    chat_api.h          # LLM request build / reply parse / retry class
+    history.h           # short rolling conversation history
+    backoff.h           # capped exponential backoff
+    sse.h               # chunked + SSE streaming decode
+    audio.h             # PCM sizing / level stats / capture gate
+    vad.h               # pause-based end-of-utterance (endpointer)
+    timing.h            # press->speak latency breakdown
+    states.h            # turn-state enum + transitions
+    tts_api.h           # TTS request build / UTF-8 clamp
+    asr_api.h           # ASR (Deepgram) response parse + host extraction
+    ulaw.h              # G.711 µ-law encode (ASR upload)
+  test/                 # one Unity suite per pure header: test_<name>/
 ```
 
-`src/` holds the firmware and the pure (Arduino-free) headers it shares with the
-host tests. The AtomS3R has no built-in PlatformIO board definition, so the env
-targets the ESP32-S3 (`esp32-s3-devkitc-1`) with the AtomS3R's USB flags
+The AtomS3R has no built-in PlatformIO board definition, so the env targets the
+ESP32-S3 (`esp32-s3-devkitc-1`) with the AtomS3R's USB flags
 (`ARDUINO_USB_MODE=1`, `ARDUINO_USB_CDC_ON_BOOT=1`); M5Unified detects the actual
 board at runtime.
 
 ## What it does so far
 
-- **v0.1 (PYR-001):** board + Wi-Fi + USB-CDC line channel; a typed line
-  becomes a `text_in` event. Status logs gated by `DEBUG_SERIAL`.
-- **v0.2 (PYR-002):** each `text_in` is sent to **Claude** via the Anthropic
-  Messages API over **direct HTTPS** (persona as the top-level `system`), and
-  the model's reply is **streamed** to serial token by token (SSE,
-  `stream:true`). HTTP/JSON errors surface as one `error: <msg>` line and the
-  loop never hangs. Replies are in Ukrainian per the persona.
-- **v0.3 (PYR-003):** robustness. A short **rolling history** (`HISTORY_MAX_TURNS`)
-  is resent with each request for context; the LLM call does a **bounded retry**
-  with exponential backoff on transient failures (transport / 429 / 5xx) and
-  surfaces a clear line otherwise; **Wi-Fi loss auto-recovers** with non-blocking
-  exponential backoff, input is paused while offline, and the LCD shows
-  `idle / thinking / error / offline`. Only successful turns are committed to
-  history, so a failed call can't poison the context.
-- **v1.1 (PYR-004…007):** PlatformIO build + native test env, and **audio I/O**
-  on the Atomic Echo Base (ES8311, enabled via `cfg.external_speaker.atomic_echo`).
-  **Push-to-talk:** hold BtnA to record 16 kHz mono PCM16 (bounded by
-  `REC_MAX_MS`, with level/clip logging), release to **hear it played back** —
-  the record→playback loop. Mic and speaker share the bus, so each side is
-  ended before the other is begun (per M5Unified's Microphone example). The
-  voice path (TTS/ASR) builds on this in v1.2+.
+v1 (Voice) is complete — the device runs the full Ukrainian voice loop and a
+text path. By phase:
 
-After each reply the device prints a per-turn stats line, e.g.
-`[stats] first_token=420 ms  total=1180 ms  tokens: in=48 out=73 total=121`.
-Because the reply is streamed, `first_token` is the genuine time to the first
-streamed token (well below `total`). `total` is the whole turn including any
-retries, and the token counts come from the API's `usage` (input from
-`message_start`, output from the final `message_delta`).
+- **v0.1–v0.3:** board + Wi-Fi + USB-CDC line channel; each typed `text_in` goes
+  to **Claude** (Anthropic Messages API, direct HTTPS, persona as `system`) and
+  the reply **streams** back token by token (SSE). A short **rolling history**
+  is resent for context, the call does a **bounded retry** with backoff, **Wi-Fi
+  loss auto-recovers**, and only successful turns are committed to history.
+- **v1.1:** PlatformIO build + native test env, and **audio I/O** on the Echo
+  Base (ES8311, `cfg.external_speaker.atomic_echo`). Push-to-talk record →
+  playback; mic and speaker share the bus, so each side is ended before the
+  other begins (per M5Unified's Microphone example).
+- **v1.2:** cloud **TTS** (ElevenLabs, `pcm_16000`). The LLM reply is spoken
+  through the Echo Base; buffered for smooth, complete playback.
+- **v1.3:** cloud **ASR** (Deepgram) + the full voice loop — speak → transcribe
+  → the same LLM→TTS chain. The capture is encoded to **8-bit µ-law in place**
+  (halves the upload, fixing 408 SLOW_UPLOAD) with a bounded retry; a noise/length
+  gate skips silence and a low-confidence transcript re-prompts.
+- **v1.4:** **states & UX** — a turn-state machine drives the LCD
+  (`idle/listening/thinking/replying/error/offline`), **pause-based
+  end-of-utterance** (VAD, bounded by `recog_patience`) so the button needn't be
+  timed, **mid-turn recovery** (Wi-Fi loss / per-stage timeouts → clean Idle),
+  and an optional **on-screen transcript** (`SHOW_TRANSCRIPT`) showing the
+  conversation + answer-time in a small Cyrillic-capable font.
 
-The persona, model, endpoint, and API key all live in `config.h` — behavior is
-config-driven, not hardcoded. Default model is `claude-haiku-4-5-20251001`
-(fast/cheap for short replies); swap to Sonnet/Opus in config for more depth.
-**Security:** the key is extractable from a flashed device; acceptable only
+Per-turn the device prints `[stats]` (LLM time-to-first-token / total / tokens),
+`[latency]` (press→speak split into speech/asr/llm/tts), and `[answer]`
+(last + session-average answer time). Behavior is **config-driven** (persona,
+models, endpoints, voice, thresholds), never hardcoded.
+
+**Security:** the keys are extractable from a flashed device; acceptable only
 under the private allowlist model (ARCHITECTURE §Security) — never publish such
-firmware. TLS uses `setInsecure()` in v0 (no cert pinning).
+firmware. TLS uses `setInsecure()` in v0–v1 (no cert pinning).
 
 ## Build & flash (PlatformIO)
 
 Install [PlatformIO Core](https://docs.platformio.org/en/latest/core/) (`pio`),
 then from `firmware/`:
 
-1. `cp src/config.example.h src/config.h` and set `WIFI_SSID` / `WIFI_PASS`,
-   plus the Anthropic settings `LLM_ENDPOINT` / `LLM_MODEL` / `LLM_API_KEY`
-   (an `sk-ant-…` key) / `LLM_ANTHROPIC_VERSION` / `LLM_MAX_TOKENS` /
-   `LLM_PERSONA` / `HISTORY_MAX_TURNS` (and `DEBUG_SERIAL`). `config.h` is
-   gitignored.
+1. `cp src/config.example.h src/config.h` and fill it in (`config.h` is
+   gitignored — it holds your keys, never commit it):
+   - **Wi-Fi** — `WIFI_SSID`, `WIFI_PASS`
+   - **LLM (Anthropic)** — `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_API_KEY` (`sk-ant-…`),
+     `LLM_ANTHROPIC_VERSION`, `LLM_MAX_TOKENS`, `LLM_PERSONA`, `HISTORY_MAX_TURNS`
+   - **TTS (ElevenLabs)** — `TTS_API_KEY` (needs `text_to_speech` permission),
+     `TTS_VOICE_ID`, `TTS_MODEL`, `TTS_MAX_CHARS`
+   - **ASR (Deepgram)** — `ASR_ENDPOINT`, `ASR_API_KEY`, `ASR_MODEL`, `ASR_LANG`
+   - **Audio / gates / VAD** — `AUDIO_SAMPLE_RATE`, `REC_MAX_MS`, `SPK_VOLUME`,
+     `REC_MIN_MS`, `REC_MIN_PEAK`, `ASR_MIN_CONFIDENCE`, `VAD_SILENCE_PEAK`,
+     `VAD_HANGOVER_MS`, `RECOG_PATIENCE_MS`
+   - **UI / debug** — `DEBUG_SERIAL`, `SHOW_TRANSCRIPT`
 2. `pio run` — compile (first build fetches M5Unified + ArduinoJson).
 3. `pio run -t upload` — flash the AtomS3R (auto-detects the port, or
-   `--upload-port /dev/cu.usbmodemXXXX`).
-4. `pio device monitor` — serial @115200; type a line, press Enter, the device
-   replies via the LLM. Wi-Fi state is logged on boot.
+   `--upload-port /dev/cu.usbmodemXXXX`; close the serial monitor first).
+4. `pio device monitor` — serial @115200. Type a line for a spoken reply, or hold
+   **BtnA** and speak. Wi-Fi state is logged on boot.
 
 > v0 was built in the Arduino IDE (board **M5AtomS3R**) / `arduino-cli compile
-> --fqbn m5stack:esp32:m5stack_atoms3r`. That path still works against `src/`
-> if needed, but PlatformIO is the supported toolchain from v1.
+> --fqbn m5stack:esp32:m5stack_atoms3r`. PlatformIO is the supported toolchain
+> from v1.
 
 ## Host tests (pure logic)
 
-The pure, Arduino-free logic — line reader, `text_in` parser, history, backoff,
-the streaming decode (chunked + SSE + event parsing), and the LLM JSON
-build/parse — runs on the host via PlatformIO's **native** test environment
-(Unity). From `firmware/`:
+The pure, Arduino-free logic runs on the host via PlatformIO's **native** test
+environment (Unity) — one suite per header. From `firmware/`:
 
 ```sh
 pio test -e native
 ```
 
-Each suite lives in `test/test_<name>/` and builds against the headers in
-`src/`; ArduinoJson is pulled from `lib_deps` for the native build. This is the
-host-test entry point CI runs (ARCHITECTURE §Testing and CI).
+Suites: `line_reader`, `serial_protocol` (via chat_api), `chat_api`, `history`,
+`backoff`, `sse`, `audio`, `vad`, `timing`, `states`, `tts`, `asr`, `ulaw`. Each
+lives in `test/test_<name>/` and builds against the headers in `src/`;
+ArduinoJson is pulled from `lib_deps` for the native build. This is the host-test
+entry point CI runs (ARCHITECTURE §Testing and CI).
 
-The on-device read path (TLS socket + streamed SSE) only runs on the board, so
-it is covered by compile + the manual DoD check; the decode logic above is
-fully host-tested (including a `data:` line split across a chunk boundary).
-
-On-device behavior (Wi-Fi join, LCD, button) and a live LLM round-trip — the
-HTTPS call succeeding and the reply actually being in Ukrainian — are verified
-by the manual DoD checks in ROADMAP §v0.1–v0.2, since they need the board, a
-real API key, and the network.
+On-device behavior — Wi-Fi join, LCD, button, the mic/speaker bus, a live
+ASR→LLM→TTS round-trip and audible Ukrainian reply — needs the board, real API
+keys, and the network, so it's covered by compile + the manual DoD checks in
+ROADMAP (the decode/parse/FSM logic above is fully host-tested).
