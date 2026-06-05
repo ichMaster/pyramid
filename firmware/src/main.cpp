@@ -225,36 +225,46 @@ void serviceWiFi() {
 void recordWhileHeld() {
   applyEvent(pyramid::TurnEvent::Listen);  // -> Listening
   logf("rec: start");
-  // Make sure we own the shared ES8311 / I2S bus in mic mode — defensive in case
-  // a prior turn aborted mid-switch (v1.4 resilience).
-  ensureMicMode();
+  // Sit in mic mode on the shared ES8311 / I2S (as in v1.1/v1.3). record()
+  // also auto-begins if needed.
+  if (!M5.Mic.isEnabled()) M5.Mic.begin();
 
-  // Pause-based end-of-utterance (v1.4): each captured chunk's peak is fed to
-  // the endpointer, so capture stops on a natural pause without releasing the
-  // button. Button release still ends it immediately (the while condition).
+  // Pause-based end-of-utterance (v1.4). CRUCIAL: keep queueing chunks
+  // continuously and drain the mic queue only ONCE at the end (like v1.3) —
+  // draining per chunk made M5's mic_task stop+restart the I2S driver and crash
+  // (i2s_stop on an uninstalled port). So we never wait mid-capture; instead the
+  // endpointer is fed chunks the real-time DMA has surely filled by now, tracked
+  // by elapsed time (lagging the queued `total`).
   pyramid::Endpointer ep{VAD_SILENCE_PEAK, VAD_HANGOVER_MS, RECOG_PATIENCE_MS};
-  size_t total = 0;
+  size_t total = 0;       // samples queued/captured
+  size_t analyzed = 0;    // samples already fed to the endpointer
   constexpr size_t kChunk = 512;
+  constexpr uint32_t kChunkMs = kChunk * 1000u / AUDIO_SAMPLE_RATE;  // 32 ms
   bool endedByPause = false;
+  const uint32_t recStart = millis();
+
   while (M5.BtnA.isPressed() && total < kMaxSamples) {
     const size_t want = pyramid::capSamples(kChunk, kMaxSamples - total);
     if (M5.Mic.record(&g_pcm[total], want, AUDIO_SAMPLE_RATE)) {
-      while (M5.Mic.isRecording()) {  // let this chunk finish before analyzing
-        M5.update();
-        delay(1);
-      }
-      const pyramid::PcmStats cs = pyramid::analyzePcm(&g_pcm[total], want, 32700);
-      const uint32_t chunkMs =
-          static_cast<uint32_t>(want * 1000ull / AUDIO_SAMPLE_RATE);
       total += want;
-      if (ep.feed(cs.peak, chunkMs)) {  // natural pause or recog_patience cap
+    }
+    // Feed the endpointer with chunks the DMA has filled by now (real time),
+    // never reading ahead of capture and never draining the queue.
+    size_t filled =
+        static_cast<size_t>((millis() - recStart) * 1ull * AUDIO_SAMPLE_RATE / 1000);
+    if (filled > total) filled = total;
+    while (analyzed + kChunk <= filled) {
+      const pyramid::PcmStats cs = pyramid::analyzePcm(&g_pcm[analyzed], kChunk, 32700);
+      analyzed += kChunk;
+      if (ep.feed(cs.peak, kChunkMs)) {  // natural pause or recog_patience cap
         endedByPause = true;
         break;
       }
     }
+    if (endedByPause) break;
     M5.update();
   }
-  while (M5.Mic.isRecording()) delay(1);  // drain queued DMA
+  while (M5.Mic.isRecording()) delay(1);  // single clean drain (as in v1.3)
   g_pcmLen = total;
 
   const pyramid::PcmStats st = pyramid::analyzePcm(g_pcm, g_pcmLen, 32700);
