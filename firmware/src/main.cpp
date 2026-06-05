@@ -109,6 +109,10 @@ void logf(const char* fmt, ...) {
 pyramid::TurnState g_state = pyramid::TurnState::Offline;
 uint32_t g_errorSinceMs = 0;  // when we entered Error (for the auto-return dwell)
 
+// Latest exchange, for the optional on-screen transcript (SHOW_TRANSCRIPT).
+std::string g_userText;   // what the user said / typed
+std::string g_replyText;  // the assistant's reply
+
 // State -> LCD background color (firmware-only; the label lives in states.h).
 uint16_t stateColor(pyramid::TurnState s) {
   switch (s) {
@@ -128,10 +132,53 @@ uint16_t stateColor(pyramid::TurnState s) {
   return TFT_BLACK;
 }
 
+#if SHOW_TRANSCRIPT
+// Bright per-state color for the status word in transcript mode (the dark
+// stateColor backgrounds would be unreadable as text on black).
+uint16_t statusTextColor(pyramid::TurnState s) {
+  switch (s) {
+    case pyramid::TurnState::Idle:      return TFT_WHITE;
+    case pyramid::TurnState::Listening: return TFT_CYAN;
+    case pyramid::TurnState::Thinking:  return TFT_YELLOW;
+    case pyramid::TurnState::Replying:  return TFT_GREEN;
+    case pyramid::TurnState::Error:     return TFT_RED;
+    case pyramid::TurnState::Offline:   return TFT_ORANGE;
+  }
+  return TFT_WHITE;
+}
+
+// Transcript mode (SHOW_TRANSCRIPT): show the conversation text on the LCD in a
+// very small Unicode font. efontCN_10 is a U8g2 Unicode font whose base covers
+// Cyrillic (incl. Ukrainian і/ї/є/ґ); the default GFX font is ASCII-only and
+// would render Cyrillic as boxes.
+void renderTranscript() {
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setFont(&fonts::efontCN_10);  // ~10 px, Cyrillic-capable
+  M5.Display.setTextSize(1);
+  M5.Display.setTextWrap(true);
+  M5.Display.setCursor(0, 0);
+
+  M5.Display.setTextColor(statusTextColor(g_state));
+  M5.Display.printf("[%s]\n", pyramid::label(g_state));
+  if (!g_userText.empty()) {
+    M5.Display.setTextColor(TFT_WHITE);
+    M5.Display.printf("> %s\n", g_userText.c_str());
+  }
+  if (!g_replyText.empty()) {
+    M5.Display.setTextColor(TFT_GREEN);
+    M5.Display.print(g_replyText.c_str());
+  }
+}
+#endif
+
 void renderState() {
+#if SHOW_TRANSCRIPT
+  renderTranscript();
+#else
   M5.Display.fillScreen(stateColor(g_state));
   M5.Display.setCursor(0, 0);
   M5.Display.print(pyramid::label(g_state));
+#endif
 }
 
 void setState(pyramid::TurnState s) {
@@ -663,7 +710,9 @@ void handleTurn(const std::string& userText) {
     return;
   }
   logf("thinking...");
-  applyEvent(pyramid::TurnEvent::Think);  // -> Thinking (ASR done; LLM + TTS fetch)
+  g_userText = userText;  // for the optional on-screen transcript (SHOW_TRANSCRIPT)
+  g_replyText.clear();
+  applyEvent(pyramid::TurnEvent::Think);  // -> Thinking (renders the user line)
 
   // Build the request from history + the pending user turn; commit to history
   // only on success so a failed call can't poison the context.
@@ -682,6 +731,10 @@ void handleTurn(const std::string& userText) {
         a.usage.inputTokens, a.usage.outputTokens, a.usage.total());
     g_history.addUser(userText);
     g_history.addAssistant(a.reply);
+    g_replyText = a.reply;  // show the reply on screen while TTS loads (transcript mode)
+#if SHOW_TRANSCRIPT
+    renderState();
+#endif
     // Still Thinking while we fetch the TTS audio; playbackCaptured() flips to
     // Replying once it actually plays.
     std::string terr;

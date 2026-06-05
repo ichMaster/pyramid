@@ -16,6 +16,12 @@
 // serial output; the reply line is always written regardless.
 #define DEBUG_SERIAL true
 
+// On-screen transcript mode (v1.4). When true, the LCD shows the conversation —
+// your text and the assistant's reply — in a very small Unicode font (Cyrillic-
+// capable) instead of the big turn-state label. A small "[state]" line stays at
+// the top. When false, the LCD shows the colored turn-state screen.
+#define SHOW_TRANSCRIPT false
+
 // --- LLM (v0.2): Anthropic Messages API -------------------------------------
 // https://docs.anthropic.com/en/api/messages
 #define LLM_ENDPOINT "https://api.anthropic.com/v1/messages"
