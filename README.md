@@ -1,6 +1,6 @@
 # Pyramid
 
-**Version 1.3.0** · A closed, private voice AI assistant on M5Stack hardware.
+**Version 1.4.0** · A closed, private voice AI assistant on M5Stack hardware.
 
 Pyramid is a self-tailored analog of [xiaozhi](https://github.com/78/xiaozhi-esp32):
 a living, configurable persona that runs on an **AtomS3R + Echo Base**, speaks

@@ -1,6 +1,33 @@
 Pyramid -- Release Notes
 ========================
 
+Version 1.4.0 (2026-06-05)
+--------------------------
+v1.4 milestone -- Voice, phase 4: states & UX. The voice loop is now legible,
+resilient, and forgiving. Completes v1; still direct-to-cloud (own server is v2).
+
+- PYR-014 Turn-state machine + LCD: one pure state machine (states.h) drives the
+  screen -- idle / listening / thinking / replying / error / offline, each with a
+  glance-readable color; Replying is distinct from Thinking. Replaces the old
+  ad-hoc status strings. Host-tested.
+- PYR-015 Pause-based end-of-utterance (VAD): hold and speak, and capture stops on
+  a natural trailing pause (silence threshold + hangover) bounded by
+  recog_patience, so you need not time the button release; release still ends it
+  immediately. Pure endpointer (vad.h), host-tested; knobs VAD_SILENCE_PEAK /
+  VAD_HANGOVER_MS / RECOG_PATIENCE_MS.
+- PYR-016 Mid-turn resilience: a Wi-Fi drop or a stalled ASR/LLM/TTS stage now
+  recovers cleanly -- failTurn() restores the shared mic/speaker bus and goes to
+  Offline (input paused) or Error (which auto-returns to Idle). The loop never
+  hangs or sticks.
+- PYR-017 Latency: per-turn [latency] breakdown (press->speak, split into
+  speech/asr/llm/tts), and ASR time is now attributed on every outcome so
+  re-prompts no longer mis-report asr=0. (A background ASR TLS pre-warm was
+  attempted and reverted -- it crashed on hardware; deferred to a safer
+  server-side design in v2.)
+- Hardware fixes: resolved a Core-0 panic in M5's mic task (the VAD loop was
+  draining the mic queue per chunk, forcing repeated I2S stop/restart) and the
+  pre-warm core-0 panic. ASR latency stays at the v1.3 baseline.
+
 Version 1.3.0 (2026-06-03)
 --------------------------
 v1.3 milestone -- Voice, phase 3: ASR + the full voice loop. Hold the button,
