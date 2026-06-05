@@ -148,12 +148,12 @@ uint16_t statusTextColor(pyramid::TurnState s) {
 }
 
 // Transcript mode (SHOW_TRANSCRIPT): show the conversation text on the LCD in a
-// very small Unicode font. efontCN_10 is a U8g2 Unicode font whose base covers
+// small Unicode font. efontCN_12 is a U8g2 Unicode font whose base covers
 // Cyrillic (incl. Ukrainian і/ї/є/ґ); the default GFX font is ASCII-only and
 // would render Cyrillic as boxes.
 void renderTranscript() {
   M5.Display.fillScreen(TFT_BLACK);
-  M5.Display.setFont(&fonts::efontCN_10);  // ~10 px, Cyrillic-capable
+  M5.Display.setFont(&fonts::efontCN_12);  // ~12 px, Cyrillic-capable
   M5.Display.setTextSize(1);
   M5.Display.setTextWrap(true);
   M5.Display.setCursor(0, 0);
