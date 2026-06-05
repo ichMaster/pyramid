@@ -19,10 +19,10 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
-| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)** | ⏭️ next |
-| **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search | 🔜 planned |
+| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
+| **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search, **sprite face** | 🔜 planned |
 | **v4** | Multi-session & administration — **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
-| **v5** | Devices & presence — Echo Pyramid+halo, M5StickS3, active listening, Cardputer, **sprite face**, **camera/vision**, Core S3 | 🔜 planned |
+| **v5** | Devices & presence — Echo Pyramid+halo, M5StickS3, Cardputer, **camera/vision**, Core S3 | 🔜 planned |
 | **v6** | Media understanding & translation — **image / audio / video → text** (describe + translate) via a multimodal LLM | 🔜 planned |
 | **v7** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
@@ -44,11 +44,13 @@ becomes a streaming client. The persona becomes a configurable **Role** (Name +
 authored **Canon**), edited in a **web console**, and the device gains its first
 on-screen **emoji face** (v2.4). Access is closed (accounts, activation by code,
 allowlist), and it's deployed locally through v2.5, then **to Fly.io with
-automated CI/CD** (v2.6).
+automated CI/CD** (v2.6); an optional hands-free **active-listening** mode lands
+in v2.7.
 
 **v3 — Intelligence & MCP.** The mind: long-term **memory**, the **MCP layer**,
 **agent orchestration** (delegate to / control other agents via MCP),
-horoscope-**temperament**, persona integration, and bounded **web search**.
+horoscope-**temperament**, persona integration, bounded **web search**, and the
+animated **sprite face** (the richer renderer of the v2.4 emotion channel).
 
 **v4 — Multi-session & administration.** The server becomes a true
 **multi-session hub** — many devices/clients at once, each its own session, all
@@ -56,16 +58,15 @@ sharing one set of per-account resources (Role, pooled providers, and the v3
 memory / MCP / temperament) — plus a **session-admin console**. Comes after v3 so
 the shared mind already exists to share and observe.
 
-**v5 — Devices & presence.** The M5Stack **board family** and richer presence —
-the LED **halo** (Echo Pyramid), M5StickS3 (two-button gestures + richer UI),
-**active listening** (hands-free), Cardputer v1.1 & ADV (keyboard), an animated
-**sprite face** (upgrading the v2.4 emoji face), **camera/vision** (AtomS3R
-Camera), and Core S3. See
+**v5 — Devices & presence.** The M5Stack **board family** — the LED **halo**
+(Echo Pyramid), M5StickS3 (two-button gestures + richer UI), Cardputer v1.1 &
+ADV (keyboard), **camera/vision** (AtomS3R Camera), and Core S3 (which extends
+the v3.7 sprite face to its bigger screen). See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
 **v6 — Media understanding & translation.** Hand the assistant an **image,
 audio clip, or short video** and it **describes / translates** it to text via a
-multimodal LLM — generalizing the v5.6 camera path to audio + video, with
+multimodal LLM — generalizing the v5.4 camera path to audio + video, with
 cross-language translation. Server-side; exposed as `image`/`audio`/`video`
 inputs + a `media` MCP tool.
 
