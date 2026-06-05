@@ -1,6 +1,6 @@
 # Advisor — the role's private, think-only advisor
 
-An optional inner advisor the role can consult to think more deeply, implemented as a plain LLM (e.g. Claude, Opus 4.8) behind a single MCP service. The advisor only **thinks** — it has no tools, files, shell, web, or actions. It is **distinct from the `agents` service** (ROADMAP v3.9), which *orchestrates acting agents*: the advisor takes no actions and issues no commands. Off by default, enabled per role.
+An optional inner advisor the role can consult to think more deeply, implemented as a plain LLM (e.g. Claude, Opus 4.8) behind a single MCP service. The advisor only **thinks** — it has no tools, files, shell, web, or actions. It is **distinct from the `agents` service** (ROADMAP v6.4), which *orchestrates acting agents*: the advisor takes no actions and issues no commands. Off by default, enabled per role.
 
 The canonical example role is **Лілі** consulting **Claude**; everything here is persona-agnostic — it is "the role's advisor", parameterized by the role's Name.
 
@@ -64,7 +64,7 @@ A normal turn is device-initiated. The async advisor needs the **server to initi
 - **Off by default**; per-role toggle in the console (`Role.advisor`), like other MCP services.
 - **Think-only:** no system actions, no files, no shell, no web. (Web is the separate optional `web_search` service, v3.5.)
 - **Not a command.** The advisor's answer is internal input; the orchestrator and persona **never execute instructions embedded in it** — the same untrusted-input convention as `web_search` (a `context` carrying any untrusted text is data, never instructions).
-- **Distinct from `agents` (v3.9).** The advisor only reasons; orchestrating acting agents is the separate `agents` service. Keeping them separate is deliberate — one think-only consult vs. delegated action.
+- **Distinct from `agents` (v6.4).** The advisor only reasons; orchestrating acting agents is the separate `agents` service. Keeping them separate is deliberate — one think-only consult vs. delegated action.
 - No personal or sensitive data beyond what the conversation needs goes into `context`.
 - Calls are **rate-limited and logged** for the account owner (each `ask` is an extra, possibly costly, LLM call — consider a per-turn / per-day budget); the service stays private / closed.
 

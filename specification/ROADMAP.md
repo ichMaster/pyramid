@@ -252,7 +252,7 @@ When **active listening** is on, the device reopens the mic right after playback
 
 ## v3 — Intelligence & MCP
 
-The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including a think-only **inner advisor** and **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.5 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, advisor, agents, and external services all plug in the same way.
+The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including a think-only **inner advisor**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.5 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, advisor, and external services all plug in the same way (agent orchestration is deferred to v6.4).
 
 ### v3.1 — Long-term memory
 
@@ -311,7 +311,7 @@ Combine the role canon, the day's temperament, recalled memory, and MCP results 
 
 **DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
 
-### v3.5 — Web search (optional)
+### v3.5 — Web search
 
 **Goal:** the assistant can look things up on the open internet, within strict bounds.
 
@@ -329,7 +329,7 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **Goal:** the role can consult a private, **think-only** advisor mid-turn and fold its reasoning into the reply — in the role's own voice.
 
-Add an `advisor` MCP service: a single tool `advisor.ask` that runs a question against a configured LLM (e.g. Claude Opus 4.8) with a short framing prompt, returning reasoning the role uses to think more deeply. The advisor only *thinks* — no tools, files, shell, or web (web is the separate `web_search` service, v3.5). This is **distinct from the v3.9 `agents` service**, which orchestrates *acting* agents; the advisor takes no actions. One voice: only the role ever speaks to the user; the advisor's answer is internal input, never spoken verbatim unless the role chooses to quote a line. Off by default, per-role toggle. See ADVISOR.md.
+Add an `advisor` MCP service: a single tool `advisor.ask` that runs a question against a configured LLM (e.g. Claude Opus 4.8) with a short framing prompt, returning reasoning the role uses to think more deeply. The advisor only *thinks* — no tools, files, shell, or web (web is the separate `web_search` service, v3.5). This is **distinct from the v6.4 `agents` service**, which orchestrates *acting* agents; the advisor takes no actions. One voice: only the role ever speaks to the user; the advisor's answer is internal input, never spoken verbatim unless the role chooses to quote a line. Off by default, per-role toggle. See ADVISOR.md.
 
 **Tasks:**
 - Add the `advisor` MCP service + `advisor.ask(question, context="") → {answer}` (ARCHITECTURE §MCP) **and its contract test**.
@@ -368,20 +368,6 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `Emo
 - (Artist "Lili" sprite pack: a later asset-only swap over the same layer scheme.)
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
-
-### v3.9 — Agent orchestration (MCP)
-
-**Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
-
-Add an `agents` MCP service so the assistant orchestrates external / sub-agents the same uniform way it uses every other tool (role / memory / kb / weather / web). The server's MCP client calls it; the orchestration policy and intelligence stay server-side, exposed to the agent as MCP tools — not a parallel mechanism.
-
-**Tasks:**
-- Define the `agents` MCP contract + tools — e.g. `agents.list()`, `agents.run(agent, task, args) → result`, `agents.status(id)`, `agents.cancel(id)` — **and its contract test**.
-- Implement the MCP server: register the available agents; run a task (sync, or async with status/streaming); enforce a per-agent **allowlist**, timeouts, and rate / cost limits.
-- Wire it into the v3.2 MCP client so the assistant can call agents mid-turn (tool-use loop) and fold the results back into its reply.
-- Guardrails: bound recursion / fan-out, **audit** every agent invocation, and keep it within the closed-access model.
-
-**DoD:** on request the assistant delegates a task to another agent via the `agents` MCP, gets the result, and folds it into its spoken/text reply; invocations are bounded, allowlisted, and audited.
 
 ---
 
@@ -542,7 +528,7 @@ The camera boards (v5.2 AtomS3R Camera, v5.3 Core S3) capture a few seconds of *
 
 ## v6 — Bots & clients
 
-Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`, and the v5 media understanding) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth + emoji face), v3 (memory / MCP + the sprite face these clients render) and v5 (media understanding for shared images / voice notes / clips).
+Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices — plus, last, **agent orchestration** (v6.4), the lowest-priority MCP capability. Each client is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`, and the v5 media understanding) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth + emoji face), v3 (memory / MCP + the sprite face these clients render) and v5 (media understanding for shared images / voice notes / clips).
 
 ### v6.1 — Telegram bot
 
@@ -583,6 +569,20 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 
 **DoD:** an allowlisted node messages the assistant over LoRa and gets a (chunked) reply back on the mesh; the bot stays within rate/size limits and ignores other nodes/channels.
 
+### v6.4 — Agent orchestration (MCP)
+
+**Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
+
+An MCP capability (not a front-end like the rest of v6) deferred to here as the lowest-priority extension. Add an `agents` MCP service so the assistant orchestrates external / sub-agents the same uniform way it uses every other tool (role / memory / kb / weather / web / advisor). The server's MCP client calls it; the orchestration policy and intelligence stay server-side, exposed to the agent as MCP tools — not a parallel mechanism. Depends on: v3.2 (the MCP client + tool loop).
+
+**Tasks:**
+- Define the `agents` MCP contract + tools — e.g. `agents.list()`, `agents.run(agent, task, args) → result`, `agents.status(id)`, `agents.cancel(id)` — **and its contract test**.
+- Implement the MCP server: register the available agents; run a task (sync, or async with status/streaming); enforce a per-agent **allowlist**, timeouts, and rate / cost limits.
+- Wire it into the v3.2 MCP client so the assistant can call agents mid-turn (tool-use loop) and fold the results back into its reply.
+- Guardrails: bound recursion / fan-out, **audit** every agent invocation, and keep it within the closed-access model.
+
+**DoD:** on request the assistant delegates a task to another agent via the `agents` MCP, gets the result, and folds it into its spoken/text reply; invocations are bounded, allowlisted, and audited.
+
 ---
 
 ## Mapping of protocols and contracts
@@ -592,7 +592,7 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.6.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
-- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.9.
+- `agents` MCP contract (`agents.list/run/status/cancel`) — v6.4.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - `advisor` MCP contract (`advisor.ask`) — v3.6; async (`advisor.ask_async` / `poll` / `close`) + the server-initiated **proactive turn** — v3.7. `Role.advisor` (+ `advisor_model`) — v3.6. See ADVISOR.md.
 - Temperament contract (`temperament.today`) — v3.3.

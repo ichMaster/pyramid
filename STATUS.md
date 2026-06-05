@@ -20,10 +20,10 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
 | **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **rolling-summary memory**, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
-| **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search, **sprite face** | 🔜 planned |
+| **v3** | Intelligence & MCP — memory, MCP layer, horoscope-temperament, persona, web search, **inner advisor**, **sprite face** | 🔜 planned |
 | **v4** | Multi-session & devices — Echo Pyramid+halo, M5StickS3, then **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
 | **v5** | Devices & media — Cardputer, **camera/vision**, Core S3, then **media understanding** (**image / audio / video → text**, describe + translate) | 🔜 planned |
-| **v6** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
+| **v6** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot, **agent orchestration** | 🔜 planned |
 
 ### v1 phases (done)
 
@@ -49,8 +49,8 @@ automated CI/CD** (v2.7); an optional hands-free **active-listening** mode lands
 in v2.8.
 
 **v3 — Intelligence & MCP.** The mind: long-term **memory**, the **MCP layer**,
-**agent orchestration** (delegate to / control other agents via MCP),
-horoscope-**temperament**, persona integration, bounded **web search**, and the
+horoscope-**temperament**, persona integration, bounded **web search**, a
+think-only **inner advisor** (sync v3.6, async + proactive turn v3.7), and the
 animated **sprite face** (the richer renderer of the v2.5 emotion channel).
 
 **v4 — Multi-session & devices.** First brings up **two more boards** — Echo
@@ -72,7 +72,9 @@ translation (exposed as `image`/`audio`/`video` inputs + a `media` MCP tool). Se
 **v6 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
 (text / voice notes / photos), a **web voice client** that renders the face in
 the browser, and a **Meshtastic** LoRa bot — each a thin bridge to the server's
-Role/LLM pipeline (intelligence stays server-side).
+Role/LLM pipeline (intelligence stays server-side). It also adds **agent
+orchestration** (v6.4) — the lowest-priority MCP capability, delegating to /
+controlling other agents via MCP.
 
 Carried forward into v2 from the v1 work:
 - **Latency wins** that need server-side pacing — streaming ASR, sentence-streaming
