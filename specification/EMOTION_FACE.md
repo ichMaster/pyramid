@@ -124,11 +124,24 @@ Pyramid's authored canon traits + mood; the enum itself is what matters.
 | listening      | attentive, user speaking            | slight head tilt, soft eyes      |
 | concern        | user in real distress, wit dropped  | soft, brows up-inner, no smile   |
 | affection      | advanced arc phase, high warmth     | soft eyes, warm halo, slow       |
+| searching      | `web_search` active (v3.5)          | scanning, "looking it up"        |
+| recalling      | `memory.recall` (v3.1)              | soft inward gaze, remembering     |
+| consulting     | inner advisor (v3.6 / v3.7)         | knowing half-smile — "asked my advisor" |
+| eureka         | async result ready (v3.7 / v3.9)    | bright spark — "got it!"          |
+| puzzled        | MCP tool empty / failed / timeout   | small frown + tilt — "that didn't help" |
 
 Notes
 - concern and affection deliberately suppress Trickster behaviors (no wink, no
   smirk). The face mirrors the canon rule that provocation retreats before real pain.
 - Engineer/focused is intentionally the least "dreamy" expression.
+- **MCP-driven emotions (v3.8)** — `searching`, `recalling`, `consulting`,
+  `eureka`, `puzzled` — are decided by the **server emotion engine from MCP
+  activity** (which service is running and what it returned), not by the device.
+  They are **presentation only** (a process expression, never a claim about
+  competence — MISSION) and each lights up only once its source service exists
+  (web search v3.5, memory v3.1, advisor v3.6/3.7, async MCP v3.9). The **emoji
+  tier (v2.5)** maps them to its nearest glyph (e.g. searching→🔎/🤔,
+  recalling→💭, consulting→🤝, eureka→💡, puzzled→😕).
 
 ---
 
@@ -143,7 +156,7 @@ Layers (z-order back to front)
 2. base face (Phase 1: simple head shape; Phase 2: Lili head art)
 3. hair accents (Phase 2 mainly; pink + blue strands)
 4. brows: { neutral, raised, furrowed, soft_inner_up }
-5. eyes: { open, half, closed, wink_L, wink_R, narrowed, wide, soft_down, up_gaze }
+5. eyes: { open, half, closed, wink_L, wink_R, narrowed, wide, soft_down, up_gaze, side_gaze }
 6. mouth: visemes for lip-sync { closed, small, mid, wide } plus expression mouths
    { smile, smirk, soft_line, o }
 7. overlay fx (optional sparkle/blush for delight, etc.)
@@ -181,6 +194,14 @@ intensity. Colors are placeholders to be finalized from the Lili reference palet
 | listening     | open      | soft          | soft_line    | 5         | #8A5CFF    | steady_dim   |
 | concern       | soft_down | soft_inner_up | soft_line    | -2        | #3A5BA0    | slow_breathe |
 | affection     | half      | soft          | smile        | 3         | #FF6FB5    | slow_breathe |
+| searching     | side_gaze | raised        | soft_line    | 5         | #00D1D1    | slow_sweep   |
+| recalling     | half      | soft          | soft_line    | -2        | #2A6FDB    | slow_breathe |
+| consulting    | narrowed  | raised        | smirk        | 3         | #8A5CFF    | slow_sweep   |
+| eureka        | wide      | raised        | smile        | 0         | #FFD23F    | sparkle      |
+| puzzled       | soft_down | soft_inner_up | soft_line    | -5        | #3A5BA0    | slow_breathe |
+
+The five MCP-driven recipes (v3.8) reuse the existing layer bank (only `side_gaze`
+is new); they are emitted by the server from MCP activity — see §4 Notes.
 
 ---
 

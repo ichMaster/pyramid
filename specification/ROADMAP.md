@@ -357,17 +357,18 @@ Stage 2 of the advisor: a fire-and-forget request, a server-side **open-loop sto
 
 ### v3.8 — Sprite face (animation)
 
-**Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
+**Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite — and **expand the emotion set with MCP-driven expressions**.
 
-Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `EmojiRenderer` with a sprite renderer on the LCD: procedural layered sprites (eyes / brows / mouth) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md. (The LED **halo** is a separate renderer of the same `EmotionFrame`, delivered with the Echo Pyramid base in v4.1.)
+Behind the same `EmotionFrame` contract from v2.5, replace `EmojiRenderer` with a sprite renderer on the LCD: procedural layered sprites (eyes / brows / mouth) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. The richer renderer can show more nuance than the emoji tier, so this phase also **grows the emotion enum with MCP-activity emotions** the server emits from what it is doing through MCP. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md. (The LED **halo** is a separate renderer of the same `EmotionFrame`, delivered with the Echo Pyramid base in v4.1.)
 
 **Tasks:**
 - Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
 - Idle loop (blink, breathe, micro gaze drift), ~150–250 ms crossfade, intensity-scaled expressiveness.
 - Lip-sync: derive an amplitude envelope from playback (RMS) → mouth visemes while `speaking`.
+- **MCP-driven emotions:** extend the emotion enum (+ its contract test) with `searching` (web_search), `recalling` (memory), `consulting` (advisor), `eureka` (a result arriving), `puzzled` (a tool empty/failed); the **server emotion engine** biases the per-turn emotion from **MCP activity** — which service is running and what it returned — and the sprite renders the new recipes. **Presentation only** — these never imply more/less competence (MISSION). Each lights up only once its source service exists (memory v3.1, web v3.5, advisor v3.6/3.7, async MCP v3.9); the **emoji tier (v2.5) falls back** to its nearest glyph.
 - (Artist "Lili" sprite pack: a later asset-only swap over the same layer scheme.)
 
-**DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
+**DoD:** the face animates (idle motion + lip-synced mouth), crossfades between emotions, and shows the **MCP-driven expressions** (e.g. a `searching` look while it looks something up, `eureka` when a result lands) — all on the same channel as the emoji face, decided server-side. Depends on: v2.5 (emoji face / emotion channel) and v3.2 (the MCP layer the engine reads activity from).
 
 ### v3.9 — Async MCP execution (background, named services)
 
@@ -613,7 +614,7 @@ An MCP capability (not a front-end like the rest of v6) deferred to here as the 
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - `advisor` MCP contract (`advisor.ask`) — v3.6; async (`advisor.ask_async` / `poll` / `close`) + the server-initiated **proactive turn** — v3.7. `Role.advisor` (+ `advisor_model`) — v3.6. See ADVISOR.md.
 - Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.8/v5.3.
+- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.8/v5.3. Emotion enum **extended with MCP-driven emotions** (searching / recalling / consulting / eureka / puzzled) — v3.8.
 - `image` (vision) contract — v5.2; reused by Core S3's onboard camera — v5.3.
 - Media understanding (describe / translate) — `image` mode v5.4, `audio{pcm|clip}` v5.5, `video{frames+audio}` v5.6; unified `media` MCP tool — v5.
 - Name + Canon in the `Role` — v2.2.
