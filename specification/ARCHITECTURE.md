@@ -107,7 +107,7 @@ button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop
 
 Text path (v0 / serial): `text_in` → LLM → `reply` / `text_out`. End-of-utterance in v1 is the button release; v1 later adds pause-based VAD bounded by `Role.recog_patience`.
 
-**Proactive turn (from v3.7).** Normally a turn is device-initiated. The async advisor (ADVISOR.md) lets the **server initiate** a turn — emit `reply` + streamed `tts_audio` to an **idle, connected** session when a held result is ready — reusing the same server→device messages (no new frame type). It is gated by the half-duplex rule (never while the device is listening/speaking; coordinates with active listening, v2.8); the v2.1 thin client already plays server-pushed frames whenever they arrive.
+**Proactive turn (from v3.7).** Normally a turn is device-initiated. The async advisor (ADVISOR.md) lets the **server initiate** a turn — emit `reply` + streamed `tts_audio` to an **idle, connected** session when a held result is ready — reusing the same server→device messages (no new frame type). It is gated by the half-duplex rule (never while the device is listening/speaking; coordinates with active listening, v2.8); the v2.1 thin client already plays server-pushed frames whenever they arrive. From **v3.9** this generalizes beyond the advisor: any MCP service marked **async** (named by the user in the console) runs in the background and brings its result back via the same proactive turn, referenced by its name.
 
 **Streaming for latency.** The pipeline streams at every stage. ASR emits `asr_partial` interims and one final `asr`. The LLM streams token deltas (the `reply` deltas); the server buffers them to **clause/sentence boundaries** and hands each completed phrase to TTS, so speech starts before the LLM finishes. TTS returns audio incrementally, sent as `tts_audio` frames and closed by `tts_end`. Target first-audio < ~1.5 s after `listen_stop`; per-stage budgets are in §Error handling and resilience.
 
@@ -167,6 +167,7 @@ Short conversation history is per-`Session`, held in RAM on the live connection 
 - **Tool loop:** an LLM turn may call tools; the server caps it at a small max-iteration count, feeds tool results back as tool messages, and on tool error/timeout returns a degraded reply instead of failing the turn.
 - **Supervision & auth:** the server launches and monitors stdio MCP processes; HTTP MCP endpoints authenticate with a per-service token. `astro`'s `temperament.today` is internal and never exposed to third parties.
 - **Custom MCP (v3.4):** the user registers their own MCP servers **per role from the console** (name, transport — stdio command or HTTP/SSE URL — auth token, exposed tools); the MCP client connects to them alongside the built-in services, with a per-server allowlist, timeouts, and rate/cost limits, staying within the closed-access model.
+- **Async execution (v3.9):** any service/tool can be marked **async** in the console (with the user's display name); the call runs on a background task as an **open loop** `{id, service_name, tool, args, status, result, ts}` and returns via a **proactive turn**, named on bring-back. Generalizes the v3.7 advisor open-loop/proactive-turn machinery to all MCP services; per-service timeout → `closed`, bounded concurrent loops, audited.
 
 ## Memory and knowledge base (v3)
 

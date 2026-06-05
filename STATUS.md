@@ -20,7 +20,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
 | **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **rolling-summary memory**, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
-| **v3** | Intelligence & MCP — memory, MCP layer, horoscope-temperament, persona + **custom MCP (console)**, web search, **inner advisor**, **sprite face** | 🔜 planned |
+| **v3** | Intelligence & MCP — memory, MCP layer, horoscope-temperament, persona + **custom & async MCP (console)**, web search, **inner advisor**, **sprite face** | 🔜 planned |
 | **v4** | Multi-session & devices — Echo Pyramid+halo, M5StickS3, then **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
 | **v5** | Devices & media — Cardputer, **camera/vision**, Core S3, then **media understanding** (**image / audio / video → text**, describe + translate) | 🔜 planned |
 | **v6** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot, **agent orchestration** | 🔜 planned |
@@ -51,8 +51,10 @@ in v2.8.
 **v3 — Intelligence & MCP.** The mind: long-term **memory**, the **MCP layer**,
 horoscope-**temperament**, persona integration **+ user-added custom MCP from
 the console** (v3.4), bounded **web search**, a think-only **inner advisor**
-(sync v3.6, async + proactive turn v3.7), and the animated **sprite face** (the
-richer renderer of the v2.5 emotion channel).
+(sync v3.6, async + proactive turn v3.7), the animated **sprite face** (the
+richer renderer of the v2.5 emotion channel), and **async MCP execution** (v3.9)
+— any named MCP service can run in the background and proactively bring its
+result back.
 
 **v4 — Multi-session & devices.** First brings up **two more boards** — Echo
 Pyramid base (+ halo) and the all-in-one M5StickS3 — so there are several device

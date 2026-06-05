@@ -369,6 +369,21 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `Emo
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
 
+### v3.9 — Async MCP execution (background, named services)
+
+**Goal:** any MCP service — built-in or a v3.4 custom one — can run **asynchronously** (fire-and-forget, non-blocking), and the assistant **proactively brings the result back** when it is ready, referring to the service by its **user-given name**.
+
+Generalize the v3.7 open-loop + proactive-turn machinery (built for the inner advisor) to **all MCP services**, configured from the console. A slow or long-running call no longer blocks the turn: the agent fires it, the role acknowledges in-character, the call runs on a server **background task** held as an **open loop**, and when it completes the server returns it via a **proactive turn** — *"«<name>» повернувся з результатом…"* — folding the result into the reply. The conversation continues meanwhile. The inner advisor (v3.7) becomes one instance of this general mechanism.
+
+**Tasks:**
+- **Console:** per MCP service (v3.4 custom + built-in) a **display name** the user sets and an **async toggle** ("run in background, bring back when ready"); a panel of pending/open async calls with **cancel**.
+- Generalize the v3.7 open-loop store to any service: `{id, service_name, tool, args, status: open|answered|closed, result, ts}`, keyed per session/account; the advisor reuses it.
+- Async invocation: when the agent calls an async-marked tool, return immediately with an `{id}` (the role acknowledges by the service's name), run it on a background task, and mark the loop `answered` on completion.
+- **Proactive bring-back:** on completion, the server initiates a proactive turn (reuse v3.7's primitive, **half-duplex gated**) that **names the service** and folds the result in; *"розкажи більше"* expands from the stored `result` without re-calling.
+- Per-service **timeout → `closed`** with a graceful in-character fallback; bound concurrent open loops; audit + rate/cost limits (closed-access model).
+
+**DoD:** the user names an MCP service and marks it async in the console; the assistant calls it **without blocking** the conversation, keeps talking, and when the result is ready **proactively returns referencing the service by name**; results expand on request; timeouts and cancel are handled. Depends on: v3.2 (MCP), v3.4 (custom MCP + naming), v3.7 (open-loop + proactive-turn machinery).
+
 ---
 
 ## v4 — Multi-session & devices
@@ -593,6 +608,7 @@ An MCP capability (not a front-end like the rest of v6) deferred to here as the 
 - Activation and auth contracts — v2.6.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
 - Custom MCP registration (per-role, from the console: stdio / HTTP-SSE endpoint + tools) — v3.4.
+- Async MCP execution (background open loop + proactive bring-back, user-named services, console-toggled) — v3.9.
 - `agents` MCP contract (`agents.list/run/status/cancel`) — v6.4.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - `advisor` MCP contract (`advisor.ask`) — v3.6; async (`advisor.ask_async` / `poll` / `close`) + the server-initiated **proactive turn** — v3.7. `Role.advisor` (+ `advisor_model`) — v3.6. See ADVISOR.md.
