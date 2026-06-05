@@ -122,7 +122,7 @@ Add pause-based end-of-utterance so the user need not time the button perfectly,
 
 ## v2 — Server platform
 
-Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. The character becomes a configurable **Role** — including its **Name** and authored **Canon** — edited in a web console, and gains its first on-screen **emotion face** (the emoji tier, driven by the server's emotion channel). Access is closed (accounts, device activation by code, allowlist), and the server is deployed to public hosting (CI/CD). Depends on: v1 (the audio + turn loop move from the device to the server). (Memory/MCP and the richer sprite face come in v3; the multi-session hub + admin console in v4; the wider board family and media understanding in v5.)
+Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. The character becomes a configurable **Role** — including its **Name** and authored **Canon** — edited in a web console, and gains its first on-screen **emotion face** (the emoji tier, driven by the server's emotion channel). Access is closed (accounts, device activation by code, allowlist), and the server is deployed to public hosting (CI/CD). It also gains a **simple cross-session memory** — a persisted rolling summary so a new session picks up where the last left off. Depends on: v1 (the audio + turn loop move from the device to the server). (That memory is deliberately simple; **semantic long-term memory + MCP** and the richer sprite face come in v3; the multi-session hub + admin console in v4; the wider board family and media understanding in v5.)
 
 ### v2.1 — Server proxy
 
@@ -148,7 +148,7 @@ A FastAPI + websockets server terminates a single duplex WSS channel and runs th
 Introduce the `Role` model and build the system prompt from it. The role carries the character's **Name** and an authored **Canon** (a character bible — lore, traits, behavioral rules), plus persona, LLM choice, and voice parameters. Canon is hand-written content, not a facet engine (MISSION non-goal).
 
 **Tasks:**
-- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model). (v2.7 adds `input_mode` + `active_listen_window` for active listening.)
+- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model). (v2.8 adds `input_mode` + `active_listen_window` for active listening.)
 - Assemble the system prompt from **canon + persona**; pass voice params to TTS and `recog_patience` to end-of-utterance.
 - Keep short in-session history (per `Session`) and feed it to the LLM with windowing.
 - Allow LLM selection per role; load the active role at connection time.
@@ -170,7 +170,23 @@ A minimal web UI edits the role fields and persists them; saving signals the dev
 
 **DoD:** the role is edited in the console and applied after a restart, no firmware changes needed.
 
-### v2.4 — Emotion channel + emoji face
+### v2.4 — Conversation memory (rolling summary)
+
+**Goal:** the assistant remembers the gist of past conversations across sessions — a simple, bounded memory that sits beneath v3's semantic recall.
+
+After v2.2 the assistant has a personality but forgets everything on a new session — v2.1's history is per-`Session` and held in RAM. This phase persists a compact **rolling summary** of the conversation (plus the most recent turns verbatim, so an abrupt disconnect loses nothing fresh) and rehydrates it when a new session starts, so the character picks up the thread. No embeddings, no fact-extraction, no MCP — those stay in v3.
+
+**Tasks:**
+- Add a **`recent`** tier to `Role.memory_type` (`none | session | recent | longterm`): `recent` persists memory across sessions; `none` / `session` stay ephemeral as before (ARCHITECTURE §Data model, §Sessions and history).
+- Persist per role/device (scoped to `account_id` once closed access adds accounts in v2.6): a length-capped **summary** text + a small **tail** of recent verbatim turns, in the **SQLite** store introduced by the v2.3 console. Audio is never persisted (unchanged).
+- **Maintain the summary** with a fixed server-side summarizer prompt (not the persona/canon): fold the oldest turns into the summary when the live in-session window overflows its budget, and again at session end; cap the summary length so both the prompt and the DB stay bounded.
+- **Rehydrate on connect:** prepend the persisted summary + the verbatim tail to the conversation before the first LLM call, within the v2.1 token-budget window.
+- Add a **"forget" / reset** — a console control + a serial command — that clears the stored summary + tail for the role (the precursor to v3's `memory.clear`).
+- Privacy: persistence is **opt-in per Role** (`memory_type`); the stored summary is bounded and inspectable, and the reset path wipes it.
+
+**DoD:** with `memory_type=recent`, ending a session and starting a new one, the assistant recalls the gist of prior conversations (e.g. your name, recurring topics, stated preferences); the summary stays length-bounded and is clearable; `none` / `session` behave exactly as before; no embeddings / MCP / fact-extraction (those remain v3). Depends on: v2.2 (Role + `memory_type`) and v2.3 (the SQLite store + console for the toggle and reset control).
+
+### v2.5 — Emotion channel + emoji face
 
 **Goal:** the character shows how it feels — a first on-screen emotion face, decided by the server.
 
@@ -184,25 +200,25 @@ The server's **emotion engine** classifies the turn's emotion (an LLM-emitted ta
 
 **DoD:** the face on the screen reflects the assistant's emotion each turn, driven by the server; emotion never alters competence.
 
-### v2.5 — Closed access
+### v2.6 — Closed access
 
 **Goal:** a private, access-controlled service — only known devices and users get in.
 
-Run behind TLS, add console login, bind devices by activation code, and reject everything not on the allowlist. Developed and tested **locally / on the LAN** (the device points at a local server) — the public host + automated deploy come in v2.6.
+Run behind TLS, add console login, bind devices by activation code, and reject everything not on the allowlist. Developed and tested **locally / on the LAN** (the device points at a local server) — the public host + automated deploy come in v2.7.
 
 **Tasks:**
-- Be deployment-ready: TLS-terminated HTTPS/WSS and a `dev`/`prod` split via `.env` (the public host + CI/CD land in v2.6).
+- Be deployment-ready: TLS-terminated HTTPS/WSS and a `dev`/`prod` split via `.env` (the public host + CI/CD land in v2.7).
 - Add accounts (`pass_hash` = argon2id) and console login (cookie/JWT); rate-limit login and `/activate`.
 - Implement device activation: `POST /activate {device_id} → {code}` (single-use, short TTL); admin binds the code; device stores its `device_token` in NVS.
 - Enforce the allowlist: unknown `device_token` → `error{unauthorized}` and the socket closes; support token revocation.
 
 **DoD:** only authorized devices and users have access; an unbound device is rejected.
 
-### v2.6 — Deployment & hosting (CI/CD)
+### v2.7 — Deployment & hosting (CI/CD)
 
-**Goal:** the server runs on public hosting and ships automatically — and because it comes after v2.5, the first public exposure already enforces accounts + activation + the allowlist.
+**Goal:** the server runs on public hosting and ships automatically — and because it comes after v2.6, the first public exposure already enforces accounts + activation + the allowlist.
 
-Containerize the server and add a pipeline that builds, tests, and deploys it to **Fly.io** on a tagged release. Through v2.1–v2.5 the device talked to a **local / LAN** server; now it connects to a live **WSS** endpoint over real TLS. Fly.io fits this shape: containers, native WebSockets, a **persistent volume** for the SQLite DB + KB files, and managed TLS.
+Containerize the server and add a pipeline that builds, tests, and deploys it to **Fly.io** on a tagged release. Through v2.1–v2.6 the device talked to a **local / LAN** server; now it connects to a live **WSS** endpoint over real TLS. Fly.io fits this shape: containers, native WebSockets, a **persistent volume** for the SQLite DB + KB files, and managed TLS.
 
 **Tasks:**
 - **Containerize** `/server` (Dockerfile: slim Python + uvicorn; the FastAPI app also serves the console, so one image). Pin deps; keys/`.env` are never baked into the image.
@@ -210,18 +226,18 @@ Containerize the server and add a pipeline that builds, tests, and deploys it to
 - **GitHub Actions CD:** extend the existing CI (lint + `pytest`) with a deploy job triggered on a **version tag** (or manual `workflow_dispatch`) — build → push image to GHCR → `flyctl deploy` (auth via a `FLY_API_TOKEN` secret). `main` stays green; deploys stay deliberate.
 - **Data & migrations:** a startup schema init/migration; the SQLite volume persists across deploys; document backup/restore.
 - **Cutover:** point the device's WSS endpoint at the live domain and **retire `setInsecure()`** (validate the real certificate); health check + platform rollback.
-- **Security gate — runs before every deploy, blocks on failure:** the v2.5 access-control tests re-run as a release gate (unauthorized `device_token` rejected + socket closed, single-use / short-TTL activation, token revocation, allowlist enforced, login + `/activate` rate-limits), the enumerated `error.code` set is honored, and oversized / malformed WS frames are rejected — plus deploy-time scans: secrets-leak scan (e.g. gitleaks) over the repo + built image, dependency / image vulnerabilities (`pip-audit`, Trivy), Python SAST (`bandit`), and a TLS posture check (no plaintext WS/HTTP in `prod`; valid cert). Wire these into the CD job so a failure stops the deploy.
+- **Security gate — runs before every deploy, blocks on failure:** the v2.6 access-control tests re-run as a release gate (unauthorized `device_token` rejected + socket closed, single-use / short-TTL activation, token revocation, allowlist enforced, login + `/activate` rate-limits), the enumerated `error.code` set is honored, and oversized / malformed WS frames are rejected — plus deploy-time scans: secrets-leak scan (e.g. gitleaks) over the repo + built image, dependency / image vulnerabilities (`pip-audit`, Trivy), Python SAST (`bandit`), and a TLS posture check (no plaintext WS/HTTP in `prod`; valid cert). Wire these into the CD job so a failure stops the deploy.
 - *(Optional)* a `staging` Fly app for a pre-prod smoke test — skip if not needed at this scale.
 
 **DoD:** pushing a tagged server release auto-builds, tests, and deploys to Fly.io; the device connects to the live WSS endpoint over TLS; data persists across deploys; a rollback is one command; **the deploy is gated on the security suite passing (auth, secrets, dependencies, TLS) — any failure blocks the release.**
 
-### v2.7 — Active listening (hands-free mode)
+### v2.8 — Active listening (hands-free mode)
 
 **Goal:** an optional **hands-free** mode — after the assistant answers, the device listens again on its own (no button) — with a toggle back to push-to-talk.
 
 When **active listening** is on, the device reopens the mic right after playback ends, waits for the user to start speaking (VAD start-of-speech), captures until the trailing pause (the v1.4 endpointer), runs the turn, and repeats — a back-and-forth conversation with no button. A configurable **idle timeout** (no speech within the window) drops back to idle; push-to-talk always still works, and the mode is a per-Role / config setting the user can switch off.
 
-**Feasibility / constraint:** the single-mic Echo Base has **no AEC**, so the device must **not listen while it is speaking** (it would transcribe its own TTS). v2.7 therefore listens only **after** playback completes (a follow-up window), not over the top of it; true **barge-in** (interrupting the reply) needs the Echo Pyramid mic-array AEC (v4.1) and is deferred. Local VAD gates the upload, so an open mic doesn't stream audio to the cloud unless speech is detected.
+**Feasibility / constraint:** the single-mic Echo Base has **no AEC**, so the device must **not listen while it is speaking** (it would transcribe its own TTS). v2.8 therefore listens only **after** playback completes (a follow-up window), not over the top of it; true **barge-in** (interrupting the reply) needs the Echo Pyramid mic-array AEC (v4.1) and is deferred. Local VAD gates the upload, so an open mic doesn't stream audio to the cloud unless speech is detected.
 
 **Tasks:**
 - Extend the VAD/endpointer with **start-of-speech detection** + a configurable **listen window / idle timeout**: after a reply, open the mic for up to `active_listen_window` s; if speech starts, capture to the pause and run the turn, then listen again; if not, return to idle.
@@ -236,7 +252,7 @@ When **active listening** is on, the device reopens the mic right after playback
 
 ## v3 — Intelligence & MCP
 
-The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.4 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, agents, and external services all plug in the same way.
+The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. It also gains the **animated sprite face** — the richer renderer of the v2.5 emotion channel. Depends on: v2 (server, role, accounts, console, emoji face). MCP is the single extension mechanism — role, memory, knowledge, agents, and external services all plug in the same way.
 
 ### v3.1 — Long-term memory
 
@@ -313,7 +329,7 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
-Behind the same `EmotionFrame` contract and emotion enum from v2.4, replace `EmojiRenderer` with a sprite renderer on the LCD: procedural layered sprites (eyes / brows / mouth) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md. (The LED **halo** is a separate renderer of the same `EmotionFrame`, delivered with the Echo Pyramid base in v4.1.)
+Behind the same `EmotionFrame` contract and emotion enum from v2.5, replace `EmojiRenderer` with a sprite renderer on the LCD: procedural layered sprites (eyes / brows / mouth) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md. (The LED **halo** is a separate renderer of the same `EmotionFrame`, delivered with the Echo Pyramid base in v4.1.)
 
 **Tasks:**
 - Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
@@ -347,11 +363,11 @@ First bring up **two more boards** — AtomS3R + **Echo Pyramid base** (+ halo) 
 
 **Goal:** support the **AtomS3R + Echo Pyramid base** (Voice Pyramid Smart Speaker), and extend the emotion channel from the screen to its LED halo.
 
-The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better speaker, a mic array (AEC), and an addressable **WS2812 halo** — so the firmware already runs on it (ES8311 audio is identical). This phase adds the halo as a second emotion renderer driven by the **same `EmotionFrame`** from v2.4: lights on the pyramid reflect the assistant's emotion.
+The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better speaker, a mic array (AEC), and an addressable **WS2812 halo** — so the firmware already runs on it (ES8311 audio is identical). This phase adds the halo as a second emotion renderer driven by the **same `EmotionFrame`** from v2.5: lights on the pyramid reflect the assistant's emotion.
 
 **Tasks:**
 - Add an `atoms3r-echo-pyramid` PlatformIO env; detect the base at runtime (M5Unified) and degrade to Echo Base behavior when the halo / array are absent.
-- Drive the **WS2812 halo** (28 LEDs) from the `EmotionFrame` (color/pattern per emotion, speaking pulse), behind the same emotion enum as the emoji face (EMOTION_FACE.md §9). No new wire contract — reuse the v2.4 `emotion` message.
+- Drive the **WS2812 halo** (28 LEDs) from the `EmotionFrame` (color/pattern per emotion, speaking pulse), behind the same emotion enum as the emoji face (EMOTION_FACE.md §9). No new wire contract — reuse the v2.5 `emotion` message.
 - Use the **mic array + AEC** for capture when present (better than the single Echo Base mic); same 16 kHz PCM16 to the server.
 - Keep the emoji LCD face working alongside the halo.
 
@@ -373,8 +389,8 @@ M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker,
   - **BtnB double-click** → new conversation (clear session; confirmed);
   - **BtnB hold** → volume / mute.
   AtomS3R (one button) keeps a subset; gestures come from M5Unified (`wasClicked` / `wasDoubleClicked` / `wasHold`).
-- **Richer UI for 135×240** (more than fits on the 128×128 AtomS3R): a scrolling multi-line transcript, a header with the turn state + Wi-Fi + **battery**, a footer with answer-time (last/avg) + token/latency stats, and a mic-level indicator while listening. The emoji face (v2.4) gets more room too.
-- Reuse the v2.1 WSS client + v2.4 emoji face; no protocol change.
+- **Richer UI for 135×240** (more than fits on the 128×128 AtomS3R): a scrolling multi-line transcript, a header with the turn state + Wi-Fi + **battery**, a footer with answer-time (last/avg) + token/latency stats, and a mic-level indicator while listening. The emoji face (v2.5) gets more room too.
+- Reuse the v2.1 WSS client + v2.5 emoji face; no protocol change.
 
 **DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
 
@@ -397,11 +413,11 @@ Generalize the v2.1 single-channel server into a proper **multi-session hub**: e
 
 **Goal:** an admin UI to see and manage the live sessions of the multi-session hub, and watch the shared resources behind them.
 
-Extends the v2.3 web console (behind the v2.5 admin login) with a **sessions view** over the v4.3 hub: who is connected, what each is doing, control over them, and visibility into the shared per-account state.
+Extends the v2.3 web console (behind the v2.6 admin login) with a **sessions view** over the v4.3 hub: who is connected, what each is doing, control over them, and visibility into the shared per-account state.
 
 **Tasks:**
 - **Live sessions list:** each connected client — account / device, **channel** (device / web / Telegram / mesh), **state** (idle/listening/thinking/replying/offline), uptime, last activity, and the current/last turn with per-turn latency + tokens.
-- **Per-session actions:** disconnect, **restart** (send `restart`), revoke the device token (v2.5), mute, and force a role reload (`config_updated`).
+- **Per-session actions:** disconnect, **restart** (send `restart`), revoke the device token (v2.6), mute, and force a role reload (`config_updated`).
 - **Shared-resources panel:** the active Role/Canon, memory item count/size, today's temperament, **provider usage vs rate-limits**, concurrent-session count vs the cap, and cache stats — the v4.3 shared layer made observable.
 - **Live updates + admin API:** the console subscribes to session events (WS/SSE); an authenticated **admin-only API** (`GET /sessions`, `POST /sessions/{id}/disconnect`, `/restart`, …) backs the UI, with rate-limits and an **audit log** of session lifecycle + admin actions.
 
@@ -422,7 +438,7 @@ Both are ESP32-S3 (StampS3A) boards with a 56-key **keyboard**, a 240×135 scree
 **Tasks:**
 - Add `cardputer` (v1.1) and `cardputer-adv` PlatformIO envs; bring up each board's mic/speaker via M5Unified (PDM+NS4168 vs ES8311) and lay out the UI for 240×135.
 - Reuse the **v4.2 input abstraction** and extend it for the keyboard: type and press **Enter** to send a text turn (a "send text" action), and a key for push-to-talk. AtomS3R keeps BtnA; M5StickS3 keeps its two-button gestures.
-- Reuse the v2.1 WSS client and the v2.4 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
+- Reuse the v2.1 WSS client and the v2.5 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
 
 **DoD:** on **both** Cardputer v1.1 and ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R, M5StickS3, and Cardputer through the input/layout abstraction.
 
@@ -475,7 +491,7 @@ A new `audio` understanding input: the server sends the captured PCM (or a clip)
 **Tasks:**
 - Add an `audio{pcm|clip}` understanding input + contract test; `mode` = describe / translate.
 - Server: clip → audio-capable multimodal model → text (description, or transcript + translation); fold into the turn.
-- Optional: voice-emotion/tone → feed the v2.4 emotion engine (the face mirrors the speaker's tone).
+- Optional: voice-emotion/tone → feed the v2.5 emotion engine (the face mirrors the speaker's tone).
 
 **DoD:** record a clip and get a text **description** ("a dog barking over music") or a **translation** of foreign speech; the result is spoken/shown.
 
@@ -515,12 +531,12 @@ A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: tex
 
 **Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
 
-A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.4, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.5 login.
+A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.5, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.6 login.
 
 **Tasks:**
-- Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.7).
+- Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.8).
 - Render the face in the browser from the `EmotionFrame` (emoji / sprite), with the idle loop + lip-sync mirrored from the device renderer.
-- Auth: behind the v2.5 accounts/login; one `Session` per browser client.
+- Auth: behind the v2.6 accounts/login; one `Session` per browser client.
 
 **DoD:** open the web client, log in, speak (or type), hear the reply, and watch the on-screen face react — the same Role / `EmotionFrame` as the hardware device.
 
@@ -544,18 +560,19 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - Serial protocol (text) and `text_in`/`reply` — v0.1, v0.2.
 - On-device audio (I2S) and the PlatformIO migration — v1.1.
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
-- Activation and auth contracts — v2.5.
+- Activation and auth contracts — v2.6.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
 - `agents` MCP contract (`agents.list/run/status/cancel`) — v3.7.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.4 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.6/v5.3.
+- `EmotionFrame` (emotion-face) contract — v2.5 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v3.6/v5.3.
 - `image` (vision) contract — v5.2; reused by Core S3's onboard camera — v5.3.
 - Media understanding (describe / translate) — `image` mode v5.4, `audio{pcm|clip}` v5.5, `video{frames+audio}` v5.6; unified `media` MCP tool — v5.
 - Name + Canon in the `Role` — v2.2.
-- `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v2.7.
+- `Role.memory_type`: `recent` (persisted rolling summary + verbatim tail, server-internal; `forget` reset) — v2.4; `longterm` (semantic memory via the `memory` MCP service) — v3.1/v3.2.
+- `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v2.8.
 - Telegram bridge (Bot API: text / voice note / photo) — v6.1.
-- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.5 auth) — v6.2.
+- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.6 auth) — v6.2.
 - Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v6.3.
 - Admin session API (`GET /sessions`, `POST /sessions/{id}/disconnect|restart`, live events) — v4.4.
 
@@ -576,4 +593,4 @@ The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M
 
 ## Deferred (beyond v0–v6)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.4 / halo v4.1 / sprite v3.6 & v5.3, boards per the Hardware roadmap (Echo Pyramid v4.1, M5StickS3 v4.2, Cardputer v1.1 & ADV v5.1, AtomS3R Camera v5.2, Core S3 v5.3), vision v5.2, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.5 / halo v4.1 / sprite v3.6 & v5.3, boards per the Hardware roadmap (Echo Pyramid v4.1, M5StickS3 v4.2, Cardputer v1.1 & ADV v5.1, AtomS3R Camera v5.2, Core S3 v5.3), vision v5.2, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)

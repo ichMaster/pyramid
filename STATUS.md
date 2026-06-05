@@ -19,7 +19,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
-| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
+| **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **rolling-summary memory**, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
 | **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search, **sprite face** | 🔜 planned |
 | **v4** | Multi-session & devices — Echo Pyramid+halo, M5StickS3, then **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
 | **v5** | Devices & media — Cardputer, **camera/vision**, Core S3, then **media understanding** (**image / audio / video → text**, describe + translate) | 🔜 planned |
@@ -40,16 +40,18 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 **v2 — Server platform.** Our own backend (**WSS / FastAPI**) sits between the
 device and the AI; the ASR→LLM→TTS loop moves **server-side** and the device
 becomes a streaming client. The persona becomes a configurable **Role** (Name +
-authored **Canon**), edited in a **web console**, and the device gains its first
-on-screen **emoji face** (v2.4). Access is closed (accounts, activation by code,
-allowlist), and it's deployed locally through v2.5, then **to Fly.io with
-automated CI/CD** (v2.6); an optional hands-free **active-listening** mode lands
-in v2.7.
+authored **Canon**), edited in a **web console**. A **rolling-summary memory**
+(v2.4) then persists the gist of past chats so a new session picks up where the
+last left off (semantic long-term memory stays in v3). The device gains its first
+on-screen **emoji face** (v2.5). Access is closed (accounts, activation by code,
+allowlist), and it's deployed locally through v2.6, then **to Fly.io with
+automated CI/CD** (v2.7); an optional hands-free **active-listening** mode lands
+in v2.8.
 
 **v3 — Intelligence & MCP.** The mind: long-term **memory**, the **MCP layer**,
 **agent orchestration** (delegate to / control other agents via MCP),
 horoscope-**temperament**, persona integration, bounded **web search**, and the
-animated **sprite face** (the richer renderer of the v2.4 emotion channel).
+animated **sprite face** (the richer renderer of the v2.5 emotion channel).
 
 **v4 — Multi-session & devices.** First brings up **two more boards** — Echo
 Pyramid base (+ halo) and the all-in-one M5StickS3 — so there are several device

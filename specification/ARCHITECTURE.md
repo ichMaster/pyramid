@@ -42,7 +42,7 @@ screen, no persona logic.
 
 ## Components
 
-- **Device (firmware).** A **family** of M5Stack boards (see §Hardware variants), not one SKU. v1 target: **AtomS3R + Echo Base** — Wi-Fi, 128×128 LCD, button, ES8311 audio (single mic + speaker). In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client from v2; on-screen **emotion face** from v2 (emoji at v2.4). No persona/canon logic and no emotion decision on the device — it renders the face/state it is told.
+- **Device (firmware).** A **family** of M5Stack boards (see §Hardware variants), not one SKU. v1 target: **AtomS3R + Echo Base** — Wi-Fi, 128×128 LCD, button, ES8311 audio (single mic + speaker). In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client from v2; on-screen **emotion face** from v2 (emoji at v2.5). No persona/canon logic and no emotion decision on the device — it renders the face/state it is told.
 - **Server (Python).** Auth gateway → turn orchestrator (ASR→LLM→TTS) → MCP client; storage for accounts, devices, roles (Name + Canon), memory; web configuration console.
 - **Emotion engine (server, from v2).** Decides the character's current emotion from the Canon + mood (and, from v3, temperament) and emits an `EmotionFrame` to the device; the device renders it (see §Emotion face).
 - **MCP layer (from v3).** Separate services: `role`, `memory`, `knowledge_base`, plus `weather`, `web_search`, `music`, `custom`. The agent calls them all the same way.
@@ -87,7 +87,7 @@ screen, no persona logic.
 ### Data model
 - `Account{id, login, pass_hash, created_at}` — `pass_hash` via argon2id.
 - `Device{id, token, account_id, role_id, status, last_seen}` — an account may own several devices.
-- `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, longterm}`; `web_search` is an off-by-default bool (v3).
+- `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, recent, longterm}` (`recent` = a persisted rolling summary across sessions, v2.4; `longterm` = semantic memory via the `memory` MCP service, v3); `web_search` is an off-by-default bool (v3).
 - `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` (from v2) — emitted per turn/state change; `emotion` is a small fixed enum (see §Emotion face / EMOTION_FACE.md), `intensity` 0–1. Decided server-side, rendered on the device.
 - `Session{id, device_id, account_id, started_at, ended_at}` — one connection / turn-loop.
 - `Message{id, session_id, role:"user"|"assistant", text, ts}` — short rolling history; window/truncation policy in §Sessions and history.
@@ -97,7 +97,7 @@ screen, no persona logic.
 
 ## Turn lifecycle
 
-A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v4.1/v2.7). Voice path (v1+):
+A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v4.1/v2.8). Voice path (v1+):
 
 ```
 button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop
@@ -148,7 +148,7 @@ Enumerated `error.code`: `wifi_lost`, `server_unreachable`, `proto_unsupported`,
 
 ## Sessions and history
 
-Short conversation history is per-`Session`, held in RAM on the live connection and trimmed to a rolling window (last N turns or a token budget) before each LLM call. Persistence follows `Role.memory_type`: `none`/`session` keep history only for the live session; `longterm` additionally writes salient facts via `memory.save` (v3). Audio frames are never persisted. A session ends on disconnect, `restart`, or idle timeout.
+Short conversation history is per-`Session`, held in RAM on the live connection and trimmed to a rolling window (last N turns or a token budget) before each LLM call. Persistence follows `Role.memory_type`: `none`/`session` keep history only for the live session; `recent` (v2.4) persists a bounded **rolling summary** — folded from overflowing turns and at session end — plus a short verbatim tail, in SQLite scoped by role/account, and rehydrates it at the next session start (no embeddings, no MCP); `longterm` additionally writes salient facts via `memory.save` and recalls them semantically (v3). A `recent`/`longterm` role can be reset (`forget`), the precursor/peer of `memory.clear`. Audio frames are never persisted. A session ends on disconnect, `restart`, or idle timeout.
 
 ## Security, auth, and secrets
 
