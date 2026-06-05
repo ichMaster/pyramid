@@ -42,9 +42,9 @@ screen, no persona logic.
 
 ## Components
 
-- **Device (firmware).** A **family** of M5Stack boards (see §Hardware variants), not one SKU. v1 target: **AtomS3R + Echo Base** — Wi-Fi, 128×128 LCD, button, ES8311 audio (single mic + speaker). In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client + on-screen **emotion face** from v2. No persona/canon logic and no emotion decision on the device — it renders the face/state it is told.
+- **Device (firmware).** A **family** of M5Stack boards (see §Hardware variants), not one SKU. v1 target: **AtomS3R + Echo Base** — Wi-Fi, 128×128 LCD, button, ES8311 audio (single mic + speaker). In v0 the I/O is text over USB-CDC serial; audio I/O (I2S, 16 kHz mono) from v1; WSS client from v2; on-screen **emotion face** from v4. No persona/canon logic and no emotion decision on the device — it renders the face/state it is told.
 - **Server (Python).** Auth gateway → turn orchestrator (ASR→LLM→TTS) → MCP client; storage for accounts, devices, roles (Name + Canon), memory; web configuration console.
-- **Emotion engine (server, from v2).** Decides the character's current emotion from the Canon + mood (and, from v3, temperament) and emits an `EmotionFrame` to the device; the device renders it (see §Emotion face).
+- **Emotion engine (server, from v4).** Decides the character's current emotion from the Canon + mood (and, from v3, temperament) and emits an `EmotionFrame` to the device; the device renders it (see §Emotion face).
 - **MCP layer (from v3).** Separate services: `role`, `memory`, `knowledge_base`, plus `weather`, `web_search`, `music`, `custom`. The agent calls them all the same way.
 - **Astro engine (from v3).** The role's natal chart + daily transits → temperament dials in the prompt and the emotion baseline.
 - **Console.** A web UI for role fields (Name, Canon, persona, voice, `web_search` toggle…), viewing/clearing memory, binding devices; Save/Reset plus a restart signal.
@@ -65,7 +65,7 @@ screen, no persona logic.
 - device→server: `hello{device_token, proto_ver, audio_fmt}`, `listen_start`, `audio`(bin), `listen_stop`
 - device→server: also `text_in{text}` (text mode / serial bridge), `ping`
 - server→device: `asr_partial{text}` (interim), `asr{text}` (final), `reply{text}` (may stream as deltas), `text_out{text}`, `tts_audio`(bin), `tts_end`, `error{code,msg}`, `config_updated`, `restart`, `pong`
-- server→device (from v2, emotion face): `emotion{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` — one `EmotionFrame` per turn or state change (see §Emotion face). Audio level for lip-sync is **not** in this message: the device derives it from the TTS audio it plays (an `audio_level` push from the server is an optional later optimization).
+- server→device (from v4, emotion face): `emotion{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` — one `EmotionFrame` per turn or state change (see §Emotion face). Audio level for lip-sync is **not** in this message: the device derives it from the TTS audio it plays (an `audio_level` push from the server is an optional later optimization).
 - `proto_ver` is negotiated in `hello`; the server rejects an unknown major with `error{code:"proto_unsupported"}`. The `error.code` values are the enumerated set in §Error handling and resilience.
 
 ### Activation (HTTPS)
@@ -88,7 +88,7 @@ screen, no persona logic.
 - `Account{id, login, pass_hash, created_at}` — `pass_hash` via argon2id.
 - `Device{id, token, account_id, role_id, status, last_seen}` — an account may own several devices.
 - `Role{id, name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type, web_search, natal_chart, updated_at}` — `name` is the character's name (e.g. "Lili"); `canon` is the authored character bible (markdown/JSON) the system prompt is assembled from (canon + persona + temperament); `memory_type ∈ {none, session, longterm}`; `web_search` is an off-by-default bool (v3).
-- `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` (from v2) — emitted per turn/state change; `emotion` is a small fixed enum (see §Emotion face / EMOTION_FACE.md), `intensity` 0–1. Decided server-side, rendered on the device.
+- `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` (from v4) — emitted per turn/state change; `emotion` is a small fixed enum (see §Emotion face / EMOTION_FACE.md), `intensity` 0–1. Decided server-side, rendered on the device.
 - `Session{id, device_id, account_id, started_at, ended_at}` — one connection / turn-loop.
 - `Message{id, session_id, role:"user"|"assistant", text, ts}` — short rolling history; window/truncation policy in §Sessions and history.
 - `MemoryItem{id, account_id, text, meta, embedding?, ts}` — long-term; `embedding` present only when `memory_type=longterm`.
@@ -97,7 +97,7 @@ screen, no persona logic.
 
 ## Turn lifecycle
 
-A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v2.7/v2.9). Voice path (v1+):
+A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v4.2/v4.4). Voice path (v1+):
 
 ```
 button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop
@@ -110,9 +110,9 @@ Text path (v0 / serial): `text_in` → LLM → `reply` / `text_out`. End-of-utte
 
 ## Device states
 
-`boot → wifi_connecting → idle → listening → thinking → replying → idle`, with `offline` (no Wi-Fi/server) and `error` reachable from any state. The LCD reflects the current state (v1: text states; from v2 the emotion face). The device holds no persona logic — transitions are driven by the button and by server messages.
+`boot → wifi_connecting → idle → listening → thinking → replying → idle`, with `offline` (no Wi-Fi/server) and `error` reachable from any state. The LCD reflects the current state (v1: text states; from v4 the emotion face). The device holds no persona logic — transitions are driven by the button and by server messages.
 
-## Emotion face (from v2)
+## Emotion face (from v4)
 
 The character's current emotion is shown on the LCD (and, on hardware with an LED ring, a halo). The **server** decides the emotion (Emotion engine: from Canon + mood, and from v3 the temperament); the device only renders the `EmotionFrame` it receives. There is **no emotion decision on the device**.
 
@@ -129,11 +129,11 @@ The full emotion enum, layer model, recipe table, and asset-manifest schema live
 Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilities and uses what is present, degrading gracefully when a feature is absent. The `EmotionFrame` contract, emotion enum, and PCM16 16 kHz mono audio format are **identical across boards** — only the renderer / halo / mic driver differ.
 
 - **v1 target — AtomS3R + Echo Base:** ESP32-S3, 128×128 LCD, one button, **ES8311** codec (single mic + speaker). No LED halo, no mic array. (Whether the board exposes usable **PSRAM** is board-dependent — verify and enable it in `platformio.ini` if present; it relaxes the audio-buffer and face-asset SRAM limits hit in v1.2.)
-- **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v2.7:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
-- **Cardputer v1.1 & ADV — v2.10:** ESP32-S3 (StampS3A), 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + amplified speaker. Audio differs — v1.1: SPM1423 PDM mic + NS4168 I2S amp; ADV: ES8311 codec + 1 W speaker + 3.5 mm jack + IMU — both via M5Unified board detection.
-- **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v3.7:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
-- **Core S3 / CoreS3 SE — v3.8:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
-- **M5StickS3 (ESP32-S3 Mini) — v2.8:** all-in-one stick — **ES8311** codec (as Echo Base) + MEMS mic + AW8737 amp + 1 W speaker, 135×240 LCD, 8 MB PSRAM, **two buttons (BtnA+BtnB)**, no base. Adds two-button gestures (single/double/hold → talk/stop/repeat/view/new-chat/volume) and a richer 135×240 UI. (On battery, cap volume ~75% to avoid brown-out.)
+- **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v4.2:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
+- **Cardputer v1.1 & ADV — v4.5:** ESP32-S3 (StampS3A), 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + amplified speaker. Audio differs — v1.1: SPM1423 PDM mic + NS4168 I2S amp; ADV: ES8311 codec + 1 W speaker + 3.5 mm jack + IMU — both via M5Unified board detection.
+- **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v4.7:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
+- **Core S3 / CoreS3 SE — v4.8:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
+- **M5StickS3 (ESP32-S3 Mini) — v4.3:** all-in-one stick — **ES8311** codec (as Echo Base) + MEMS mic + AW8737 amp + 1 W speaker, 135×240 LCD, 8 MB PSRAM, **two buttons (BtnA+BtnB)**, no base. Adds two-button gestures (single/double/hold → talk/stop/repeat/view/new-chat/volume) and a richer 135×240 UI. (On battery, cap volume ~75% to avoid brown-out.)
 
 The audio path (16 kHz mono PCM16), the WS contract, the Role/Canon model, and the `EmotionFrame` do not change with the board — adding a board is new drivers + capability flags + per-board input/layout, not a protocol change. The firmware **detects capabilities and degrades gracefully** when a feature (halo, mic array, camera) is absent.
 
@@ -194,7 +194,7 @@ The role's natal chart is fixed at creation (a JSON snapshot). The astro engine 
 ## Stack and repository layout
 
 ```
-/firmware    # M5Stack boards (AtomS3R + Echo Base first), C++/M5Unified — Arduino IDE in v0, PlatformIO from v1; emotion-face renderer from v2
+/firmware    # M5Stack boards (AtomS3R + Echo Base first), C++/M5Unified — Arduino IDE in v0, PlatformIO from v1; emotion-face renderer from v4
 /server      # Python: FastAPI + websockets, orchestrator, auth, console, emotion engine
 /mcp         # Python MCP servers: role, memory, knowledge_base, weather, web_search
 /console     # web UI for role/canon configuration (minimal)

@@ -1,6 +1,6 @@
 # Roadmap — M5Stack Voice AI Chatbot ("Pyramid")
 
-Four self-contained versions, built in order: **v0** text → **v1** voice → **v2** server with a role → **v3** memory/horoscope/MCP. Versions are numbered from 0; phases inside a version are numbered `vA.B` (A = version, B = phase), e.g. `v1.2`. Each phase lists a goal, the work, a task list, and a Definition of Done (DoD). Every phase ships with the automated tests that encode its DoD (see ARCHITECTURE §Testing and CI). Firmware toolchain: **v0 in the Arduino IDE**, migrating to **PlatformIO from v1**.
+Six self-contained versions, built in order: **v0** text → **v1** voice → **v2** server platform → **v3** intelligence & MCP → **v4** devices & presence → **v5** bots & clients. Versions are numbered from 0; phases inside a version are numbered `vA.B` (A = version, B = phase), e.g. `v1.2`. Each phase lists a goal, the work, a task list, and a Definition of Done (DoD). Every phase ships with the automated tests that encode its DoD (see ARCHITECTURE §Testing and CI). Firmware toolchain: **v0 in the Arduino IDE**, migrating to **PlatformIO from v1**.
 
 ---
 
@@ -120,15 +120,15 @@ Add pause-based end-of-utterance so the user need not time the button perfectly,
 
 ---
 
-## v2 — Server with role configuration
+## v2 — Server platform
 
-Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. The character becomes a configurable **Role** — including its **Name** and authored **Canon** — edited in a web console, and the device gains its first **emotion face** (emoji tier) driven by the server. Access is closed: accounts, device activation by code, and an allowlist. Depends on: v1 (the audio + turn loop move from the device to the server).
+Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop moves server-side; the device becomes a streaming client. The character becomes a configurable **Role** — including its **Name** and authored **Canon** — edited in a web console. Access is closed (accounts, device activation by code, allowlist), the server is deployed to public hosting (CI/CD), and it grows into a **multi-session hub** with shared per-account resources plus a session-admin console. Depends on: v1 (the audio + turn loop move from the device to the server). (The emotion face and the wider board family live in v4; memory/MCP in v3.)
 
 ### v2.1 — Server proxy
 
 **Goal:** the same chat as v1, but routed through our own server instead of direct cloud calls.
 
-A FastAPI + websockets server terminates a single duplex WSS channel and runs the turn orchestrator; the device only streams audio/text and renders results. The serial path keeps working as a local debug client through the server. (Serving many clients concurrently with shared resources comes in v2.11.)
+A FastAPI + websockets server terminates a single duplex WSS channel and runs the turn orchestrator; the device only streams audio/text and renders results. The serial path keeps working as a local debug client through the server. (Serving many clients concurrently with shared resources comes in v2.6.)
 
 **Tasks:**
 - Stand up a **WSS** server (FastAPI + `websockets`), TLS-terminated.
@@ -148,7 +148,7 @@ A FastAPI + websockets server terminates a single duplex WSS channel and runs th
 Introduce the `Role` model and build the system prompt from it. The role carries the character's **Name** and an authored **Canon** (a character bible — lore, traits, behavioral rules), plus persona, LLM choice, and voice parameters. Canon is hand-written content, not a facet engine (MISSION non-goal).
 
 **Tasks:**
-- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model). (v2.9 adds `input_mode` + `active_listen_window` for active listening.)
+- Define `Role{name, canon, persona, lang, voice{pitch,speed}, recog_patience, model, memory_type}` (see ARCHITECTURE §Data model). (v4.4 adds `input_mode` + `active_listen_window` for active listening.)
 - Assemble the system prompt from **canon + persona**; pass voice params to TTS and `recog_patience` to end-of-utterance.
 - Keep short in-session history (per `Session`) and feed it to the LLM with windowing.
 - Allow LLM selection per role; load the active role at connection time.
@@ -201,86 +201,7 @@ Containerize the server and add a pipeline that builds, tests, and deploys it to
 
 **DoD:** pushing a tagged server release auto-builds, tests, and deploys to Fly.io; the device connects to the live WSS endpoint over TLS; data persists across deploys; a rollback is one command; **the deploy is gated on the security suite passing (auth, secrets, dependencies, TLS) — any failure blocks the release.**
 
-### v2.6 — Emotion channel + emoji face
-
-**Goal:** the character shows how it feels — a first on-screen emotion face, decided by the server.
-
-The server's **emotion engine** classifies the turn's emotion (an LLM-emitted tag or a server classification of the reply, from the Canon + mood) and sends an `EmotionFrame` to the device; the device renders it as an **emoji / simple glyph** on the LCD. This is the cheapest renderer in the ladder — its job is to prove the emotion channel end to end. The contract and emotion enum are locked here so later sprite tiers are a renderer swap. No on-device emotion decision (intelligence off-device).
-
-**Tasks:**
-- Define the emotion enum + `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` and add the `emotion` WS message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**.
-- Server: derive the emotion per turn (from canon + reply); emit one `EmotionFrame` per turn / state change; relax to neutral after `ttl_ms`.
-- Device: `EmojiRenderer` behind an `IFaceRenderer` interface — map emotion → emoji/glyph on the 128×128 LCD; idle/neutral when no frame.
-- Keep it Echo-Base-only (no halo); the halo and sprite tiers come later (see EMOTION_FACE.md).
-
-**DoD:** the face on the screen reflects the assistant's emotion each turn, driven by the server; emotion never alters competence.
-
-### v2.7 — Echo Pyramid base + emotion halo
-
-**Goal:** support the **AtomS3R + Echo Pyramid base** (Voice Pyramid Smart Speaker), and extend the emotion channel from the screen to its LED halo.
-
-The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better speaker, a mic array (AEC), and an addressable **WS2812 halo** — so the firmware already runs on it (ES8311 audio is identical). This phase adds the halo as a second emotion renderer driven by the **same `EmotionFrame`** from v2.6: lights on the pyramid reflect the assistant's emotion.
-
-**Tasks:**
-- Add an `atoms3r-echo-pyramid` PlatformIO env; detect the base at runtime (M5Unified) and degrade to Echo Base behavior when the halo / array are absent.
-- Drive the **WS2812 halo** (28 LEDs) from the `EmotionFrame` (color/pattern per emotion, speaking pulse), behind the same emotion enum as the emoji face (EMOTION_FACE.md §9). No new wire contract — reuse the v2.6 `emotion` message.
-- Use the **mic array + AEC** for capture when present (better than the single Echo Base mic); same 16 kHz PCM16 to the server.
-- Keep the emoji LCD face working alongside the halo.
-
-**DoD:** on the Echo Pyramid base the halo reflects the per-turn emotion (same `EmotionFrame` as the screen), and the build still runs on plain Echo Base with the halo gracefully absent.
-
-### v2.8 — M5StickS3 (all-in-one stick: extra buttons + richer UI)
-
-**Goal:** run on the **M5StickS3** — a standalone ESP32-S3 stick with the same ES8311 audio as the Echo Base, **two buttons**, and a larger 135×240 screen — using the extra button for richer control and the extra screen for a richer UI.
-
-M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker, 8 MB PSRAM, 135×240 LCD, **BtnA + BtnB** (plus power). The ES8311 path maps closely to the Echo Base, so the port is mostly a PlatformIO env, an input layer, and a screen layout.
-
-**Tasks:**
-- Add an `m5sticks3` PlatformIO env; bring up ES8311 mic/speaker via M5Unified (close to the Echo Base path); cap speaker volume (~75%) on battery to avoid brown-out reboots.
-- **Input abstraction + button gestures** (introduced here, reused by the other boards): map gestures → abstract, config-driven actions —
-  - **BtnA hold** → push-to-talk (release / trailing pause ends);
-  - **BtnA click** → tap-to-talk (hands-free, VAD ends) when idle, or **stop / barge-in** when speaking;
-  - **BtnA double-click** → repeat the last reply;
-  - **BtnB click** → toggle view (state screen ↔ transcript);
-  - **BtnB double-click** → new conversation (clear session; confirmed);
-  - **BtnB hold** → volume / mute.
-  AtomS3R (one button) keeps a subset; gestures come from M5Unified (`wasClicked` / `wasDoubleClicked` / `wasHold`).
-- **Richer UI for 135×240** (more than fits on the 128×128 AtomS3R): a scrolling multi-line transcript, a header with the turn state + Wi-Fi + **battery**, a footer with answer-time (last/avg) + token/latency stats, and a mic-level indicator while listening. The emoji face (v2.6) gets more room too.
-- Reuse the v2.1 WSS client + v2.6 emoji face; no protocol change.
-
-**DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
-
-### v2.9 — Active listening (hands-free mode)
-
-**Goal:** an optional **hands-free** mode — after the assistant answers, the device listens again on its own (no button) — with a toggle back to push-to-talk.
-
-When **active listening** is on, the device reopens the mic right after playback ends, waits for the user to start speaking (VAD start-of-speech), captures until the trailing pause (the v1.4 endpointer), runs the turn, and repeats — a back-and-forth conversation with no button. A configurable **idle timeout** (no speech within the window) drops back to idle; push-to-talk always still works, and the mode is a per-Role / config setting the user can switch off.
-
-**Feasibility / constraint:** the single-mic Echo Base has **no AEC**, so the device must **not listen while it is speaking** (it would transcribe its own TTS). v2.9 therefore listens only **after** playback completes (a follow-up window), not over the top of it; true **barge-in** (interrupting the reply) needs the Echo Pyramid mic-array AEC (v2.7) and is deferred. Local VAD gates the upload, so an open mic doesn't stream audio to the cloud unless speech is detected.
-
-**Tasks:**
-- Extend the VAD/endpointer with **start-of-speech detection** + a configurable **listen window / idle timeout**: after a reply, open the mic for up to `active_listen_window` s; if speech starts, capture to the pause and run the turn, then listen again; if not, return to idle.
-- **Gate listening off during playback** (no self-hearing on non-AEC boards); resume only when playback has finished.
-- Add the mode as a **Role / config setting** (`input_mode`: `push_to_talk` | `active`) editable in the console, plus a device gesture to toggle it (e.g. M5StickS3 BtnB, a Cardputer key) and a clear **listening indicator** on the LCD / halo (privacy).
-- Keep push-to-talk fully working in both modes — a button press always starts a turn.
-- (Deferred) **barge-in** over playback — requires AEC (Echo Pyramid base, v2.7).
-
-**DoD:** with active listening on, you hold a multi-turn spoken conversation with **no button** between turns; it returns to idle after the idle timeout; you can switch back to push-to-talk from the console or a device gesture; the device never transcribes its own speech, and a listening indicator is always visible.
-
-### v2.10 — Cardputer (v1.1 & ADV) — keyboard input
-
-**Goal:** run on the **M5 Cardputer** — both **v1.1** and **ADV** — adding on-device typed input (keyboard, Enter to send) alongside voice.
-
-Both are ESP32-S3 (StampS3A) boards with a 56-key **keyboard**, a 240×135 screen, and a real mic + amplified speaker — they speak the same WSS/audio contract, and the keyboard makes text a first-class **on-device** input (not just the serial debug path). They differ only in **audio hardware**: **v1.1** = SPM1423 PDM mic + **NS4168** I2S speaker amp; **ADV** = **ES8311** codec (as Echo Base) + NS4150B + 1 W speaker + 3.5 mm jack + IMU. M5Unified abstracts both via `M5.Mic`/`M5.Speaker` + board detection, so it's one codebase.
-
-**Tasks:**
-- Add `cardputer` (v1.1) and `cardputer-adv` PlatformIO envs; bring up each board's mic/speaker via M5Unified (PDM+NS4168 vs ES8311) and lay out the UI for 240×135.
-- Reuse the **v2.8 input abstraction** and extend it for the keyboard: type and press **Enter** to send a text turn (a "send text" action), and a key for push-to-talk. AtomS3R keeps BtnA; M5StickS3 keeps its two-button gestures.
-- Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
-
-**DoD:** on **both** Cardputer v1.1 and ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R, M5StickS3, and Cardputer through the input/layout abstraction.
-
-### v2.11 — Multi-session server with shared resources
+### v2.6 — Multi-session server with shared resources
 
 **Goal:** one server hub serves **many devices/clients at once**, each its own session, all drawing on **one shared set of server-side resources** — the same character with the same knowledge on every device.
 
@@ -295,25 +216,25 @@ By now there are several device types (and v4 will add Telegram / web / mesh). G
 
 **DoD:** multiple devices/clients are connected and conversing at the same time, each in its own session; they share one Role, one memory/knowledge set, one daily temperament, and pooled provider clients; a change on one device (role/setting/remembered fact) is visible to the others; one busy client doesn't block the rest.
 
-### v2.12 — Session administration console
+### v2.7 — Session administration console
 
 **Goal:** an admin UI to see and manage the live sessions of the multi-session hub, and watch the shared resources behind them.
 
-Extends the v2.3 web console (behind the v2.4 admin login) with a **sessions view** over the v2.11 hub: who is connected, what each is doing, control over them, and visibility into the shared per-account state.
+Extends the v2.3 web console (behind the v2.4 admin login) with a **sessions view** over the v2.6 hub: who is connected, what each is doing, control over them, and visibility into the shared per-account state.
 
 **Tasks:**
 - **Live sessions list:** each connected client — account / device, **channel** (device / web / Telegram / mesh), **state** (idle/listening/thinking/replying/offline), uptime, last activity, and the current/last turn with per-turn latency + tokens.
 - **Per-session actions:** disconnect, **restart** (send `restart`), revoke the device token (v2.4), mute, and force a role reload (`config_updated`).
-- **Shared-resources panel:** the active Role/Canon, memory item count/size, today's temperament, **provider usage vs rate-limits**, concurrent-session count vs the cap, and cache stats — the v2.11 shared layer made observable.
+- **Shared-resources panel:** the active Role/Canon, memory item count/size, today's temperament, **provider usage vs rate-limits**, concurrent-session count vs the cap, and cache stats — the v2.6 shared layer made observable.
 - **Live updates + admin API:** the console subscribes to session events (WS/SSE); an authenticated **admin-only API** (`GET /sessions`, `POST /sessions/{id}/disconnect`, `/restart`, …) backs the UI, with rate-limits and an **audit log** of session lifecycle + admin actions.
 
 **DoD:** an admin sees all live sessions in real time, can inspect one and disconnect/restart it, and can view the shared-resource state; every admin action is authenticated and audited.
 
 ---
 
-## v3 — Memory, horoscope-temperament, and MCP
+## v3 — Intelligence & MCP
 
-A living persona: it remembers the user across sessions, shifts its daily mood by horoscope, and reaches services uniformly through MCP. Depends on: v2 (server, role, accounts, console). MCP becomes the single extension mechanism — role, memory, knowledge, and external services all plug in the same way.
+The mind behind the character: it remembers the user across sessions, reaches services uniformly through **MCP** (including **orchestrating other agents**), shifts its daily mood by horoscope, and can look things up on the web. Depends on: v2 (server, role, accounts, console). MCP is the single extension mechanism — role, memory, knowledge, agents, and external services all plug in the same way.
 
 ### v3.1 — Long-term memory
 
@@ -343,7 +264,21 @@ Introduce an MCP client in the server and move `role`, `memory`, `knowledge_base
 
 **DoD:** the agent calls memory, knowledge, and weather through MCP on its own.
 
-### v3.3 — Horoscope-temperament
+### v3.3 — Agent orchestration (MCP)
+
+**Goal:** the assistant can **delegate to and control other AI agents** — spawn sub-agents, run a task, and use the result — all through MCP.
+
+Add an `agents` MCP service so the assistant orchestrates external / sub-agents the same uniform way it uses every other tool (role / memory / kb / weather / web). The server's MCP client calls it; the orchestration policy and intelligence stay server-side, exposed to the agent as MCP tools — not a parallel mechanism.
+
+**Tasks:**
+- Define the `agents` MCP contract + tools — e.g. `agents.list()`, `agents.run(agent, task, args) → result`, `agents.status(id)`, `agents.cancel(id)` — **and its contract test**.
+- Implement the MCP server: register the available agents; run a task (sync, or async with status/streaming); enforce a per-agent **allowlist**, timeouts, and rate / cost limits.
+- Wire it into the v3.2 MCP client so the assistant can call agents mid-turn (tool-use loop) and fold the results back into its reply.
+- Guardrails: bound recursion / fan-out, **audit** every agent invocation, and keep it within the closed-access model.
+
+**DoD:** on request the assistant delegates a task to another agent via the `agents` MCP, gets the result, and folds it into its spoken/text reply; invocations are bounded, allowlisted, and audited.
+
+### v3.4 — Horoscope-temperament
 
 **Goal:** the character's tone and voice vary, livingly, day to day.
 
@@ -358,7 +293,7 @@ Fix a natal chart on the role; an astro engine computes daily transits into temp
 
 **DoD:** tone, voice, and the emotion face noticeably differ across days without degrading answer quality.
 
-### v3.4 — Persona integration
+### v3.5 — Persona integration
 
 **Goal:** one coherent living character, drawing on everything at once.
 
@@ -372,7 +307,7 @@ Combine the role canon, the day's temperament, recalled memory, and MCP results 
 
 **DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
 
-### v3.5 — Web search (optional)
+### v3.6 — Web search (optional)
 
 **Goal:** the assistant can look things up on the open internet, within strict bounds.
 
@@ -386,11 +321,96 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **DoD:** when enabled, the assistant answers from fresh web results **with sources**; when disabled, it has no internet access beyond the LLM's own knowledge.
 
-### v3.6 — Sprite face (animation)
+---
+
+## v4 — Devices & presence
+
+The character gets a **face** and runs across the **M5Stack board family** with richer interaction — all over the same WS / `EmotionFrame` / Role contracts (a new board is per-board I/O glue, not a protocol change). The firmware detects each board's capabilities (halo, mic array, camera, keyboard, extra buttons) and uses them when present, degrading gracefully when absent. Depends on: v2 (server + the emotion channel over the WS contract).
+
+### v4.1 — Emotion channel + emoji face
+
+**Goal:** the character shows how it feels — a first on-screen emotion face, decided by the server.
+
+The server's **emotion engine** classifies the turn's emotion (an LLM-emitted tag or a server classification of the reply, from the Canon + mood) and sends an `EmotionFrame` to the device; the device renders it as an **emoji / simple glyph** on the LCD. This is the cheapest renderer in the ladder — its job is to prove the emotion channel end to end. The contract and emotion enum are locked here so later sprite tiers are a renderer swap. No on-device emotion decision (intelligence off-device).
+
+**Tasks:**
+- Define the emotion enum + `EmotionFrame{emotion, intensity, gaze, accent_color?, speaking, ttl_ms}` and add the `emotion` WS message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**.
+- Server: derive the emotion per turn (from canon + reply); emit one `EmotionFrame` per turn / state change; relax to neutral after `ttl_ms`.
+- Device: `EmojiRenderer` behind an `IFaceRenderer` interface — map emotion → emoji/glyph on the 128×128 LCD; idle/neutral when no frame.
+- Keep it Echo-Base-only (no halo); the halo and sprite tiers come later (see EMOTION_FACE.md).
+
+**DoD:** the face on the screen reflects the assistant's emotion each turn, driven by the server; emotion never alters competence.
+
+### v4.2 — Echo Pyramid base + emotion halo
+
+**Goal:** support the **AtomS3R + Echo Pyramid base** (Voice Pyramid Smart Speaker), and extend the emotion channel from the screen to its LED halo.
+
+The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better speaker, a mic array (AEC), and an addressable **WS2812 halo** — so the firmware already runs on it (ES8311 audio is identical). This phase adds the halo as a second emotion renderer driven by the **same `EmotionFrame`** from v4.1: lights on the pyramid reflect the assistant's emotion.
+
+**Tasks:**
+- Add an `atoms3r-echo-pyramid` PlatformIO env; detect the base at runtime (M5Unified) and degrade to Echo Base behavior when the halo / array are absent.
+- Drive the **WS2812 halo** (28 LEDs) from the `EmotionFrame` (color/pattern per emotion, speaking pulse), behind the same emotion enum as the emoji face (EMOTION_FACE.md §9). No new wire contract — reuse the v4.1 `emotion` message.
+- Use the **mic array + AEC** for capture when present (better than the single Echo Base mic); same 16 kHz PCM16 to the server.
+- Keep the emoji LCD face working alongside the halo.
+
+**DoD:** on the Echo Pyramid base the halo reflects the per-turn emotion (same `EmotionFrame` as the screen), and the build still runs on plain Echo Base with the halo gracefully absent.
+
+### v4.3 — M5StickS3 (all-in-one stick: extra buttons + richer UI)
+
+**Goal:** run on the **M5StickS3** — a standalone ESP32-S3 stick with the same ES8311 audio as the Echo Base, **two buttons**, and a larger 135×240 screen — using the extra button for richer control and the extra screen for a richer UI.
+
+M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker, 8 MB PSRAM, 135×240 LCD, **BtnA + BtnB** (plus power). The ES8311 path maps closely to the Echo Base, so the port is mostly a PlatformIO env, an input layer, and a screen layout.
+
+**Tasks:**
+- Add an `m5sticks3` PlatformIO env; bring up ES8311 mic/speaker via M5Unified (close to the Echo Base path); cap speaker volume (~75%) on battery to avoid brown-out reboots.
+- **Input abstraction + button gestures** (introduced here, reused by the other boards): map gestures → abstract, config-driven actions —
+  - **BtnA hold** → push-to-talk (release / trailing pause ends);
+  - **BtnA click** → tap-to-talk (hands-free, VAD ends) when idle, or **stop / barge-in** when speaking;
+  - **BtnA double-click** → repeat the last reply;
+  - **BtnB click** → toggle view (state screen ↔ transcript);
+  - **BtnB double-click** → new conversation (clear session; confirmed);
+  - **BtnB hold** → volume / mute.
+  AtomS3R (one button) keeps a subset; gestures come from M5Unified (`wasClicked` / `wasDoubleClicked` / `wasHold`).
+- **Richer UI for 135×240** (more than fits on the 128×128 AtomS3R): a scrolling multi-line transcript, a header with the turn state + Wi-Fi + **battery**, a footer with answer-time (last/avg) + token/latency stats, and a mic-level indicator while listening. The emoji face (v4.1) gets more room too.
+- Reuse the v2.1 WSS client + v4.1 emoji face; no protocol change.
+
+**DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
+
+### v4.4 — Active listening (hands-free mode)
+
+**Goal:** an optional **hands-free** mode — after the assistant answers, the device listens again on its own (no button) — with a toggle back to push-to-talk.
+
+When **active listening** is on, the device reopens the mic right after playback ends, waits for the user to start speaking (VAD start-of-speech), captures until the trailing pause (the v1.4 endpointer), runs the turn, and repeats — a back-and-forth conversation with no button. A configurable **idle timeout** (no speech within the window) drops back to idle; push-to-talk always still works, and the mode is a per-Role / config setting the user can switch off.
+
+**Feasibility / constraint:** the single-mic Echo Base has **no AEC**, so the device must **not listen while it is speaking** (it would transcribe its own TTS). v4.4 therefore listens only **after** playback completes (a follow-up window), not over the top of it; true **barge-in** (interrupting the reply) needs the Echo Pyramid mic-array AEC (v4.2) and is deferred. Local VAD gates the upload, so an open mic doesn't stream audio to the cloud unless speech is detected.
+
+**Tasks:**
+- Extend the VAD/endpointer with **start-of-speech detection** + a configurable **listen window / idle timeout**: after a reply, open the mic for up to `active_listen_window` s; if speech starts, capture to the pause and run the turn, then listen again; if not, return to idle.
+- **Gate listening off during playback** (no self-hearing on non-AEC boards); resume only when playback has finished.
+- Add the mode as a **Role / config setting** (`input_mode`: `push_to_talk` | `active`) editable in the console, plus a device gesture to toggle it (e.g. M5StickS3 BtnB, a Cardputer key) and a clear **listening indicator** on the LCD / halo (privacy).
+- Keep push-to-talk fully working in both modes — a button press always starts a turn.
+- (Deferred) **barge-in** over playback — requires AEC (Echo Pyramid base, v4.2).
+
+**DoD:** with active listening on, you hold a multi-turn spoken conversation with **no button** between turns; it returns to idle after the idle timeout; you can switch back to push-to-talk from the console or a device gesture; the device never transcribes its own speech, and a listening indicator is always visible.
+
+### v4.5 — Cardputer (v1.1 & ADV) — keyboard input
+
+**Goal:** run on the **M5 Cardputer** — both **v1.1** and **ADV** — adding on-device typed input (keyboard, Enter to send) alongside voice.
+
+Both are ESP32-S3 (StampS3A) boards with a 56-key **keyboard**, a 240×135 screen, and a real mic + amplified speaker — they speak the same WSS/audio contract, and the keyboard makes text a first-class **on-device** input (not just the serial debug path). They differ only in **audio hardware**: **v1.1** = SPM1423 PDM mic + **NS4168** I2S speaker amp; **ADV** = **ES8311** codec (as Echo Base) + NS4150B + 1 W speaker + 3.5 mm jack + IMU. M5Unified abstracts both via `M5.Mic`/`M5.Speaker` + board detection, so it's one codebase.
+
+**Tasks:**
+- Add `cardputer` (v1.1) and `cardputer-adv` PlatformIO envs; bring up each board's mic/speaker via M5Unified (PDM+NS4168 vs ES8311) and lay out the UI for 240×135.
+- Reuse the **v4.3 input abstraction** and extend it for the keyboard: type and press **Enter** to send a text turn (a "send text" action), and a key for push-to-talk. AtomS3R keeps BtnA; M5StickS3 keeps its two-button gestures.
+- Reuse the v2.1 WSS client and the v4.1 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
+
+**DoD:** on **both** Cardputer v1.1 and ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R, M5StickS3, and Cardputer through the input/layout abstraction.
+
+### v4.6 — Sprite face (animation)
 
 **Goal:** upgrade the emoji face to an animated, layered character face — a renderer swap, not a rewrite.
 
-Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
+Behind the same `EmotionFrame` contract and emotion enum from v4.1, replace `EmojiRenderer` with a sprite renderer: procedural layered sprites (eyes/brows/mouth/halo) composited per emotion recipe, with an idle loop (blink/breathe), expression crossfade, and **audio-level lip-sync** from the TTS the device plays. Authored character art (a "Lili"-style pack) is a later asset swap over the same scheme. See EMOTION_FACE.md.
 
 **Tasks:**
 - Implement the layer model + asset manifest (EMOTION_FACE.md) and an `IconRenderer` (procedural sprite pack) behind `IFaceRenderer`.
@@ -400,7 +420,7 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `Emo
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
 
-### v3.7 — Camera input (vision)
+### v4.7 — Camera input (vision)
 
 **Goal:** the assistant can **see as well as hear** — capture an image and answer a spoken question about it.
 
@@ -414,52 +434,52 @@ Target config: **AtomS3R Camera Kit (OV3660, M12) stacked on the Echo Base** —
 
 **DoD:** ask aloud "what do you see?", and the device captures a frame and speaks a description of it; the `image` path has a contract test and keeps vision/LLM off-device.
 
-### v3.8 — Core S3 (all-in-one: camera + bigger screen)
+### v4.8 — Core S3 (all-in-one: camera + bigger screen)
 
 **Goal:** support **M5 Core S3** — onboard mic, speaker, camera, and a 320×240 screen — as the richest board, extending the sprite face to the larger display.
 
-Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v3.7) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.6.
+Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v4.7) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v4.6.
 
 **Tasks:**
 - Add a `cores3` PlatformIO env; bring up onboard audio + camera via M5Unified; map the "talk action" to the touch screen.
-- Extend the v3.6 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
-- Run the v3.7 vision path on the **onboard** camera (no external module).
+- Extend the v4.6 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
+- Run the v4.7 vision path on the **onboard** camera (no external module).
 
 **DoD:** Core S3 runs the full voice + vision assistant with the richer, larger sprite face; all behavior comes over the same WS contract — no protocol change from the smaller boards.
 
 ---
 
-## v4 — Bots & clients
+## v5 — Bots & clients
 
-Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), and v3 for the richer face / memory / vision these clients surface.
+Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), v3 (memory / MCP) and v4 (the emotion face these clients render).
 
-### v4.1 — Telegram bot
+### v5.1 — Telegram bot
 
 **Goal:** chat with the assistant from **Telegram** — text, voice notes, and photos — as a private bot.
 
-A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: text is a `text_in`; **voice notes** go through the existing ASR→LLM→TTS (reply as text + a spoken voice note); **photos** use the v3.7 vision path. Closed: only allowlisted Telegram IDs are answered.
+A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: text is a `text_in`; **voice notes** go through the existing ASR→LLM→TTS (reply as text + a spoken voice note); **photos** use the v4.7 vision path. Closed: only allowlisted Telegram IDs are answered.
 
 **Tasks:**
 - Add a Telegram bridge to the server (Bot API; long-poll or webhook); map a chat to a `Session` + `Role`.
-- Text → LLM; **voice note** → ASR → LLM → TTS (reply text + voice); **photo** → vision (v3.7).
+- Text → LLM; **voice note** → ASR → LLM → TTS (reply text + voice); **photo** → vision (v4.7).
 - Allowlist Telegram user/chat IDs (reuse the closed-access model); rate-limit; per-user short history/memory.
 
 **DoD:** an allowlisted Telegram user can text or send a voice note and get the assistant's reply (text + spoken); unknown users are ignored.
 
-### v4.2 — Web voice client + emotion face
+### v5.2 — Web voice client + emotion face
 
 **Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
 
-A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v2.6, or the sprite from v3.6) on a canvas — so the browser is effectively a software device. Behind the v2.4 login.
+A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC), streams it over the **same WSS contract** as the device, plays the TTS reply, and **renders the `EmotionFrame`** as the face (emoji from v4.1, or the sprite from v4.6) on a canvas — so the browser is effectively a software device. Behind the v2.4 login.
 
 **Tasks:**
-- Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v2.9).
+- Web client: mic capture + streaming over WSS (reuse the v2.1 device↔server contract, or a web-tailored profile), TTS playback, push-to-talk + active listening (v4.4).
 - Render the face in the browser from the `EmotionFrame` (emoji / sprite), with the idle loop + lip-sync mirrored from the device renderer.
 - Auth: behind the v2.4 accounts/login; one `Session` per browser client.
 
 **DoD:** open the web client, log in, speak (or type), hear the reply, and watch the on-screen face react — the same Role / `EmotionFrame` as the hardware device.
 
-### v4.3 — Meshtastic bot bridge
+### v5.3 — Meshtastic bot bridge
 
 **Goal:** the assistant answers on a **LoRa Meshtastic mesh** as an off-grid text bot.
 
@@ -481,16 +501,17 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.4.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
-- `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
-- Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.6 (emoji); same contract reused by the LED halo — v2.7, and the sprite face — v3.6/v3.8.
-- `image` (vision) contract — v3.7; reused by Core S3's onboard camera — v3.8.
+- `agents` MCP contract (`agents.list/run/status/cancel`) — v3.3.
+- `web_search` MCP contract (`web.search`, `web.fetch`) — v3.6.
+- Temperament contract (`temperament.today`) — v3.4.
+- `EmotionFrame` (emotion-face) contract — v4.1 (emoji); same contract reused by the LED halo — v4.2, and the sprite face — v4.6/v4.8.
+- `image` (vision) contract — v4.7; reused by Core S3's onboard camera — v4.8.
 - Name + Canon in the `Role` — v2.2.
-- `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v2.9.
-- Telegram bridge (Bot API: text / voice note / photo) — v4.1.
-- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.4 auth) — v4.2.
-- Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v4.3.
-- Admin session API (`GET /sessions`, `POST /sessions/{id}/disconnect|restart`, live events) — v2.12.
+- `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v4.4.
+- Telegram bridge (Bot API: text / voice note / photo) — v5.1.
+- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.4 auth) — v5.2.
+- Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v5.3.
+- Admin session API (`GET /sessions`, `POST /sessions/{id}/disconnect|restart`, live events) — v2.7.
 
 ## Hardware roadmap
 
@@ -499,14 +520,14 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 | Board | MCU | Audio | Screen · Input | Adds | Phase |
 |-------|-----|-------|----------------|------|-------|
 | AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
-| AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
-| M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · **BtnA+BtnB** (gestures) | all-in-one (no base), 2-button gestures, richer UI | **v2.8** |
-| Cardputer **v1.1 & ADV** | ESP32-S3 (StampS3A) | v1.1: SPM1423 mic + NS4168 spk · ADV: ES8311 + 1 W spk | 240×135 · **keyboard** | on-device **typed input** | **v2.10** |
-| AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
-| Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
+| AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v4.2** |
+| M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · **BtnA+BtnB** (gestures) | all-in-one (no base), 2-button gestures, richer UI | **v4.3** |
+| Cardputer **v1.1 & ADV** | ESP32-S3 (StampS3A) | v1.1: SPM1423 mic + NS4168 spk · ADV: ES8311 + 1 W spk | 240×135 · **keyboard** | on-device **typed input** | **v4.5** |
+| AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v4.7** |
+| Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v4.8** |
 
 The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M5StickS3 reuses the same ES8311 audio, so all three are close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
-## Deferred (beyond v0–v4)
+## Deferred (beyond v0–v5)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer v1.1 & ADV v2.10, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v4.1 / halo v4.2 / sprite v4.6 & v4.8, boards per the Hardware roadmap (Echo Pyramid v4.2, M5StickS3 v4.3, Cardputer v1.1 & ADV v4.5, AtomS3R Camera v4.7, Core S3 v4.8), vision v4.7, web search v3.6. The artist "Lili" sprite pack remains a later asset-only swap over v4.6.)
