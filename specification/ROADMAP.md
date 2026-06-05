@@ -128,7 +128,7 @@ Our own backend now sits between the device and the AI. The ASR→LLM→TTS loop
 
 **Goal:** the same chat as v1, but routed through our own server instead of direct cloud calls.
 
-A FastAPI + websockets server terminates a single duplex WSS channel and runs the turn orchestrator; the device only streams audio/text and renders results. The serial path keeps working as a local debug client through the server.
+A FastAPI + websockets server terminates a single duplex WSS channel and runs the turn orchestrator; the device only streams audio/text and renders results. The serial path keeps working as a local debug client through the server. (Serving many clients concurrently with shared resources comes in v2.11.)
 
 **Tasks:**
 - Stand up a **WSS** server (FastAPI + `websockets`), TLS-terminated.
@@ -279,6 +279,21 @@ Both are ESP32-S3 (StampS3A) boards with a 56-key **keyboard**, a 240×135 scree
 - Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change. ADV extras (IMU, 3.5 mm jack) are optional capabilities, detected when present.
 
 **DoD:** on **both** Cardputer v1.1 and ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R, M5StickS3, and Cardputer through the input/layout abstraction.
+
+### v2.11 — Multi-session server with shared resources
+
+**Goal:** one server hub serves **many devices/clients at once**, each its own session, all drawing on **one shared set of server-side resources** — the same character with the same knowledge on every device.
+
+By now there are several device types (and v4 will add Telegram / web / mesh). Generalize the v2.1 single-channel server into a proper **multi-session hub**: each connected client gets a lightweight `Session` (just its live connection + current turn/audio), but **durable state is shared per account, not duplicated per device** — the **Role/Canon**, **provider clients** (pooled LLM/ASR/TTS + caches), and (as they land) **memory, KB, the daily temperament, and MCP connections**. So a fact learned or a setting changed on one device is reflected on all of them.
+
+**Tasks:**
+- **Session manager:** a registry holding one `Session` per connection, served **concurrently** (asyncio); per-session state is only the connection + current turn; clean lifecycle (disconnect / `restart` / idle-timeout); a device may hold at most one active session (or a defined policy).
+- **Shared-services layer:** a single per-account set of shared resources behind a clean interface — Role/Canon, provider clients (connection pools + response/TTS caches), and hooks for memory / KB / temperament / MCP from v3 — accessed **concurrency-safely** (no cross-session races on shared writes, e.g. memory).
+- **Consistency:** changes to shared state (Role edit, new memory) propagate to live sessions (e.g. `config_updated`) so all devices stay in sync.
+- **Limits & fairness:** cap concurrent sessions; per-session **and** shared provider rate-limits so one client can't starve the others; bound shared memory/cache size.
+- **Isolation where it matters:** keep per-session privacy (one client never sees another's live audio/turn) while sharing the durable account resources.
+
+**DoD:** multiple devices/clients are connected and conversing at the same time, each in its own session; they share one Role, one memory/knowledge set, one daily temperament, and pooled provider clients; a change on one device (role/setting/remembered fact) is visible to the others; one busy client doesn't block the rest.
 
 ---
 
