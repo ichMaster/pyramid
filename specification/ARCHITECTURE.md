@@ -129,10 +129,13 @@ The full emotion enum, layer model, recipe table, and asset-manifest schema live
 Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilities and uses what is present, degrading gracefully when a feature is absent. The `EmotionFrame` contract, emotion enum, and PCM16 16 kHz mono audio format are **identical across boards** — only the renderer / halo / mic driver differ.
 
 - **v1 target — AtomS3R + Echo Base:** ESP32-S3, 128×128 LCD, one button, **ES8311** codec (single mic + speaker). No LED halo, no mic array. (Whether the board exposes usable **PSRAM** is board-dependent — verify and enable it in `platformio.ini` if present; it relaxes the audio-buffer and face-asset SRAM limits hit in v1.2.)
-- **Next — AtomS3R + Echo Pyramid base:** adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (enables the emotion halo). Same AtomS3R compute + LCD.
-- **After — Core S3:** larger screen and more resources; room for a richer face and on-device UI.
+- **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v2.7:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
+- **Cardputer ADV — v2.8:** ESP32-S3, 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + speaker.
+- **AtomS3R Camera Kit (OV3660, M12) — v3.7:** same AtomS3R compute; adds a **camera** for the vision path (the `image` contract). Verify camera + Echo audio coexistence.
+- **Core S3 / CoreS3 SE — v3.8:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
+- **M5StickS3 (ESP32-S3 Mini) — candidate, unscheduled:** verify it has a usable mic + speaker (a passive buzzer can't render TTS); a port depends on real audio output.
 
-The audio path (16 kHz mono PCM16), the WS contract, and the Role/Canon model do not change with the board — adding a board is new drivers + capability flags, not a protocol change.
+The audio path (16 kHz mono PCM16), the WS contract, the Role/Canon model, and the `EmotionFrame` do not change with the board — adding a board is new drivers + capability flags + per-board input/layout, not a protocol change. The firmware **detects capabilities and degrades gracefully** when a feature (halo, mic array, camera) is absent.
 
 ## Error handling and resilience
 

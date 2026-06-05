@@ -215,6 +215,33 @@ The server's **emotion engine** classifies the turn's emotion (an LLM-emitted ta
 
 **DoD:** the face on the screen reflects the assistant's emotion each turn, driven by the server; emotion never alters competence.
 
+### v2.7 — Echo Pyramid base + emotion halo
+
+**Goal:** support the **AtomS3R + Echo Pyramid base** (Voice Pyramid Smart Speaker), and extend the emotion channel from the screen to its LED halo.
+
+The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better speaker, a mic array (AEC), and an addressable **WS2812 halo** — so the firmware already runs on it (ES8311 audio is identical). This phase adds the halo as a second emotion renderer driven by the **same `EmotionFrame`** from v2.6: lights on the pyramid reflect the assistant's emotion.
+
+**Tasks:**
+- Add an `atoms3r-echo-pyramid` PlatformIO env; detect the base at runtime (M5Unified) and degrade to Echo Base behavior when the halo / array are absent.
+- Drive the **WS2812 halo** (28 LEDs) from the `EmotionFrame` (color/pattern per emotion, speaking pulse), behind the same emotion enum as the emoji face (EMOTION_FACE.md §9). No new wire contract — reuse the v2.6 `emotion` message.
+- Use the **mic array + AEC** for capture when present (better than the single Echo Base mic); same 16 kHz PCM16 to the server.
+- Keep the emoji LCD face working alongside the halo.
+
+**DoD:** on the Echo Pyramid base the halo reflects the per-turn emotion (same `EmotionFrame` as the screen), and the build still runs on plain Echo Base with the halo gracefully absent.
+
+### v2.8 — Cardputer ADV (keyboard input)
+
+**Goal:** run on the **M5 Cardputer ADV**, adding on-device typed input (keyboard, Enter to send) alongside voice.
+
+Cardputer ADV is an ESP32-S3 board with a built-in **keyboard**, a 240×135 screen, and a mic + speaker — it speaks the same WSS/audio contract, and its keyboard makes text a first-class **on-device** input (not just the serial debug path).
+
+**Tasks:**
+- Add a `cardputer-adv` PlatformIO env; bring up its mic/speaker via M5Unified and lay out the UI for 240×135.
+- Add an **input abstraction**: a single "talk action" + a "send text" action mapped per board — on Cardputer, type on the keyboard and press **Enter** to send a text turn; a key (or button) for push-to-talk. AtomS3R keeps BtnA.
+- Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change.
+
+**DoD:** on Cardputer ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R and Cardputer through the input/layout abstraction.
+
 ---
 
 ## v3 — Memory, horoscope-temperament, and MCP
@@ -306,6 +333,33 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `Emo
 
 **DoD:** the face animates (idle motion + lip-synced mouth) and crossfades between emotions, using the same channel as the emoji face.
 
+### v3.7 — Camera input (vision)
+
+**Goal:** the assistant can **see** — capture an image on camera hardware and answer about it.
+
+Introduce on-device **camera capture** on the **AtomS3R Camera Kit** (OV3660, M12) and a vision path: the device sends a frame to the server, which asks a **multimodal LLM** and speaks the answer. Intelligence stays off-device — the device captures and streams the image; the server interprets.
+
+**Tasks:**
+- Add an `atoms3r-camera` PlatformIO env; capture a still JPEG frame from the OV3660.
+- Add an **`image`** message to the device↔server contract (ARCHITECTURE §WS) **and its contract test**: device → `image{jpeg}` (on a "look" trigger or attached to a turn); the server forwards it to a multimodal LLM with the Role/Canon and returns a spoken reply.
+- Server: a vision turn (image + optional prompt) → multimodal LLM → TTS, reusing the v2 turn pipeline and history.
+- Verify camera + audio hardware coexistence; document the supported combo (the Camera Kit's audio capability vs a separate Echo base).
+
+**DoD:** point the camera at something, ask "what do you see?", and hear a spoken description; the `image` path has a contract test and keeps vision/LLM off-device.
+
+### v3.8 — Core S3 (all-in-one: camera + bigger screen)
+
+**Goal:** support **M5 Core S3** — onboard mic, speaker, camera, and a 320×240 screen — as the richest board, extending the sprite face to the larger display.
+
+Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 320×240 touch), so it runs voice (v2) and vision (v3.7) **without a base**. This phase ports to it and uses the extra screen/resources to extend the **sprite face** from v3.6.
+
+**Tasks:**
+- Add a `cores3` PlatformIO env; bring up onboard audio + camera via M5Unified; map the "talk action" to the touch screen.
+- Extend the v3.6 **sprite face** for 320×240 — larger composited sprites, more detail, the idle loop / lip-sync at higher resolution (same `EmotionFrame` contract).
+- Run the v3.7 vision path on the **onboard** camera (no external module).
+
+**DoD:** Core S3 runs the full voice + vision assistant with the richer, larger sprite face; all behavior comes over the same WS contract — no protocol change from the smaller boards.
+
 ---
 
 ## Mapping of protocols and contracts
@@ -317,13 +371,25 @@ Behind the same `EmotionFrame` contract and emotion enum from v2.6, replace `Emo
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - Temperament contract (`temperament.today`) — v3.3.
-- `EmotionFrame` (emotion-face) contract — v2.6 (emoji); same contract reused by the sprite face — v3.6.
+- `EmotionFrame` (emotion-face) contract — v2.6 (emoji); same contract reused by the LED halo — v2.7, and the sprite face — v3.6/v3.8.
+- `image` (vision) contract — v3.7; reused by Core S3's onboard camera — v3.8.
 - Name + Canon in the `Role` — v2.2.
 
 ## Hardware roadmap
 
-The device is a family, not one SKU (ARCHITECTURE §Hardware variants): **v1 → AtomS3R + Echo Base** (ES8311 audio, 128×128 LCD; no halo/mic-array). Later targets — **AtomS3R + Echo Pyramid base** (adds a mic array + AEC and a WS2812 halo) and **Core S3** (larger screen/resources) — add capabilities the firmware detects and uses when present. The audio format, WS contract, Role/Canon, and `EmotionFrame` are identical across boards.
+The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The audio format (16 kHz mono PCM16), the WS contract, the Role/Canon, and the `EmotionFrame` are **identical across boards** — a new board is per-board I/O glue (audio bring-up, the "talk"/text input, screen layout), enabled by the v1.4 firmware split and the v2 thin-client model, not a protocol change.
+
+| Board | MCU | Audio | Screen · Input | Adds | Phase |
+|-------|-----|-------|----------------|------|-------|
+| AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
+| AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
+| Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.8** |
+| AtomS3R Camera Kit (OV3660, M12) | ESP32-S3 (same) | via Echo audio | 128×128 · BtnA + **camera** | **vision** | **v3.7** |
+| Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
+| M5StickS3 (ESP32-S3 Mini) | ESP32-S3 | ⚠️ verify mic/speaker (prior Stick had only a buzzer) | 135×240 · BtnA/B | — | candidate — unscheduled until real audio out is confirmed |
+
+The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, so they're close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / sprite v3.6, boards per the Hardware roadmap, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, Cardputer ADV v2.8, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6. M5StickS3 is an unscheduled candidate pending audio verification.)

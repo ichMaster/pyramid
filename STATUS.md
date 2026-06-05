@@ -19,8 +19,8 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
-| **v2** | Server with role config — WSS/FastAPI backend, console, accounts, activation | ⏭️ next |
-| **v3** | Memory, horoscope-temperament, MCP | 🔜 planned |
+| **v2** | Server with role config — WSS/FastAPI, console, accounts, activation, **deployment (Fly.io)**, + boards (Echo Pyramid halo, Cardputer ADV) | ⏭️ next |
+| **v3** | Memory, MCP, horoscope-temperament, web search, sprite face, **vision/camera**, **Core S3** | 🔜 planned |
 
 ### v1 phases (done)
 
@@ -42,6 +42,13 @@ activation by code, allowlist). The server is **developed/tested locally** (the
 device points at a LAN server) through v2.4, then **deployed to public hosting
 (Fly.io) with automated CI/CD** in v2.5; the device gains its first **emoji
 face** in v2.6.
+
+v2 also begins the **hardware family**: the Echo Pyramid base extends the emotion
+channel to its LED halo (v2.7), and the Cardputer ADV adds on-device keyboard
+input (v2.8). v3 carries the family further — vision/camera on the AtomS3R Camera
+(v3.7) and Core S3 with onboard camera + a larger sprite face (v3.8). See
+[specification/ROADMAP.md](specification/ROADMAP.md) §Hardware roadmap for the
+full board matrix.
 
 Carried forward into v2 from the v1 work:
 - **Latency wins** that need server-side pacing — streaming ASR, sentence-streaming
