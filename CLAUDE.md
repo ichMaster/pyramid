@@ -2,9 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current state: specification only
+## Current state
 
-This repo is **pre-code**. There is no `/firmware`, `/server`, `/mcp`, or `/console` yet — only the specification under [specification/](specification/) plus `.gitignore` (the standard Python template) and `LICENSE`. There are **no build, lint, or test commands** because there is nothing to build yet.
+**v1 (Voice) shipped** on the firmware (`1.4.0`); **v2 (Server platform) is in progress** on the `v2-dev` branch. The `/server` Python package now exists (FastAPI + websockets); `/mcp` and `/console` do not yet. Build/run/test commands below.
+
+### Build, run, test
+
+**Server** (`/server`, Python — from the repo root):
+```bash
+python3 -m venv .venv && . .venv/bin/activate     # once
+pip install -r server/requirements.txt            # deps (incl. pytest, ruff)
+uvicorn pyramid_server.main:app --app-dir server --reload   # run the WSS server
+pytest                                             # unit + contract + integration (tests/)
+ruff check server tests                            # lint
+```
+Tests use **mock** LLM/ASR/TTS and a fake device — no external AI, no secrets in CI. Real keys live in `server/.env` (gitignored; see `server/.env.example`). `pyproject.toml` sets `pythonpath=["server"]` so tests import `pyramid_server`.
+
+**Firmware** (`/firmware`, PlatformIO — from `firmware/`):
+```bash
+pio run                 # compile (env: atoms3r)
+pio test -e native      # host-testable logic (FSM, VAD, codecs, framing)
+pio run -t upload       # flash a connected board
+pio device monitor      # serial @115200
+```
+
+**CI** (`.github/workflows/ci.yml`) runs `ruff` + `pytest` on every push/PR; `main`/`v2-dev` stays green.
 
 The three specs are the source of truth and must be read before writing any code:
 - [specification/MISSION.md](specification/MISSION.md) — what is being built and why, plus the hard principles and non-goals.
