@@ -166,6 +166,7 @@ Short conversation history is per-`Session`, held in RAM on the live connection 
 - **Transport choice:** internal services (`role`, `memory`, `astro`) run in-process or over stdio; networked/third-party ones (`weather`, `web_search`, `custom`) use HTTP/SSE. The agent calls all of them identically.
 - **Tool loop:** an LLM turn may call tools; the server caps it at a small max-iteration count, feeds tool results back as tool messages, and on tool error/timeout returns a degraded reply instead of failing the turn.
 - **Supervision & auth:** the server launches and monitors stdio MCP processes; HTTP MCP endpoints authenticate with a per-service token. `astro`'s `temperament.today` is internal and never exposed to third parties.
+- **Custom MCP (v3.4):** the user registers their own MCP servers **per role from the console** (name, transport — stdio command or HTTP/SSE URL — auth token, exposed tools); the MCP client connects to them alongside the built-in services, with a per-server allowlist, timeouts, and rate/cost limits, staying within the closed-access model.
 
 ## Memory and knowledge base (v3)
 

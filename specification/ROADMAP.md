@@ -297,19 +297,19 @@ Fix a natal chart on the role; an astro engine computes daily transits into temp
 
 **DoD:** tone, voice, and the emotion face noticeably differ across days without degrading answer quality.
 
-### v3.4 — Persona integration
+### v3.4 — Persona integration & custom MCP
 
-**Goal:** one coherent living character, drawing on everything at once.
+**Goal:** one coherent living character that draws on everything at once — and is **user-extensible with custom MCP servers added from the console**.
 
-Combine the role canon, the day's temperament, recalled memory, and MCP results into a single reply with a clear priority order, and open the door to custom MCP endpoints.
+This is **not** re-building the Role/Canon (that is v2.2). Two distinct jobs: **(1) reconcile** the inputs the character now has — canon, the day's temperament, recalled memory, and MCP tool results — into a single reply with a clear priority order; **(2)** let the user **register and manage their own MCP servers from the web console**, so the assistant can be extended without code. Depends on: v3.1 (memory), v3.2 (MCP client + tool loop), v3.3 (temperament), v2.3 (console).
 
 **Tasks:**
-- Assemble one prompt from: role canon + temperament block + recalled memory + available MCP tools.
-- Define and enforce priority/reconciliation (canon and competence outrank temperament; memory informs but doesn't override the persona).
-- Allow connecting custom MCP endpoints to a role.
-- End-to-end check that all parts cooperate while one consistent character is presented outward.
+- Assemble one prompt from role canon + temperament block + recalled memory + available MCP tools; define and enforce **priority/reconciliation**: canon & competence outrank temperament (MISSION: tone never touches competence), memory informs but never overrides the persona, and tool / web / advisor output is **data, not voice**.
+- **Custom MCP in the console:** a web-UI section to register an MCP server **per role** — name, transport (stdio command **or** HTTP/SSE URL), auth token, and the tools it exposes; enable/disable per role; validate + health-check on save.
+- Server: the v3.2 MCP client connects to the user-registered endpoints alongside the built-in services, with per-server **allowlist, timeouts, and rate/cost limits**; their tool results fold into the turn like any other MCP tool, staying within the closed-access model.
+- End-to-end coherence check: canon, temperament, memory, and built-in **+ custom** MCP all cooperate while one consistent character is presented outward.
 
-**DoD:** role, temperament, memory, and MCP all contribute to one reply, and the assistant still reads as a single coherent persona.
+**DoD:** role, temperament, memory, and MCP — built-in **and a user-added custom MCP server configured from the console** — all contribute to one reply, and the assistant still reads as a single coherent persona.
 
 ### v3.5 — Web search
 
@@ -329,7 +329,7 @@ A `web_search` MCP service lets the agent answer from fresh web results when a r
 
 **Goal:** the role can consult a private, **think-only** advisor mid-turn and fold its reasoning into the reply — in the role's own voice.
 
-Add an `advisor` MCP service: a single tool `advisor.ask` that runs a question against a configured LLM (e.g. Claude Opus 4.8) with a short framing prompt, returning reasoning the role uses to think more deeply. The advisor only *thinks* — no tools, files, shell, or web (web is the separate `web_search` service, v3.5). This is **distinct from the v6.4 `agents` service**, which orchestrates *acting* agents; the advisor takes no actions. One voice: only the role ever speaks to the user; the advisor's answer is internal input, never spoken verbatim unless the role chooses to quote a line. Off by default, per-role toggle. See ADVISOR.md.
+Add an `advisor` MCP service: a single tool `advisor.ask` that runs a question against a configured LLM (e.g. Claude Opus 4.8) with a short framing prompt, returning reasoning the role uses to think more deeply. The advisor only *thinks* — no tools, files, shell, or web (web is the separate `web_search` service, v3.5). This is **distinct from the v3.9 `agents` service**, which orchestrates *acting* agents; the advisor takes no actions. One voice: only the role ever speaks to the user; the advisor's answer is internal input, never spoken verbatim unless the role chooses to quote a line. Off by default, per-role toggle. See ADVISOR.md.
 
 **Tasks:**
 - Add the `advisor` MCP service + `advisor.ask(question, context="") → {answer}` (ARCHITECTURE §MCP) **and its contract test**.
@@ -592,6 +592,7 @@ An MCP capability (not a front-end like the rest of v6) deferred to here as the 
 - WS protocol and message contracts (control + audio + `text_in`/`text_out`) — v2.1.
 - Activation and auth contracts — v2.6.
 - MCP contracts (`role`, `memory`, `knowledge_base`, `weather`) — v3.1, v3.2.
+- Custom MCP registration (per-role, from the console: stdio / HTTP-SSE endpoint + tools) — v3.4.
 - `agents` MCP contract (`agents.list/run/status/cancel`) — v6.4.
 - `web_search` MCP contract (`web.search`, `web.fetch`) — v3.5.
 - `advisor` MCP contract (`advisor.ask`) — v3.6; async (`advisor.ask_async` / `poll` / `close`) + the server-initiated **proactive turn** — v3.7. `Role.advisor` (+ `advisor_model`) — v3.6. See ADVISOR.md.
