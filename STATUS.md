@@ -19,7 +19,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, USB-CDC | ✅ complete (v0.1–v0.3) |
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
-| **v2** | Server with role config — WSS/FastAPI, console, accounts, activation, **deployment (Fly.io)**, + boards (Echo Pyramid halo, Cardputer ADV) | ⏭️ next |
+| **v2** | Server with role config — WSS/FastAPI, console, accounts, activation, **deployment (Fly.io)**, + boards (Echo Pyramid halo, M5StickS3, Cardputer v1.1 & ADV) | ⏭️ next |
 | **v3** | Memory, MCP, horoscope-temperament, web search, sprite face, **vision/camera**, **Core S3** | 🔜 planned |
 
 ### v1 phases (done)
