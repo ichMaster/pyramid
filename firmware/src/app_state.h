@@ -13,8 +13,7 @@
 #include <string>
 
 #include "audio.h"         // samplesForMs (kMaxSamples)
-#include "config.h"        // REC_MAX_MS, AUDIO_SAMPLE_RATE, HISTORY_MAX_TURNS, ...
-#include "history.h"       // pyramid::History
+#include "config.h"        // REC_MAX_MS, AUDIO_SAMPLE_RATE, server settings, ...
 #include "line_reader.h"   // pyramid::LineReader
 #include "states.h"        // pyramid::TurnState
 #include "timing.h"        // pyramid::VoiceStamps
@@ -47,9 +46,8 @@ constexpr size_t kMaxSamples =
     pyramid::samplesForMs(REC_MAX_MS, AUDIO_SAMPLE_RATE);
 
 // --- Shared globals (defined in app_state.cpp) ------------------------------
-// Serial line reader + short rolling chat history.
+// Serial line reader (the local debug client; rolling history is server-side from v2.1).
 extern pyramid::LineReader g_reader;
-extern pyramid::History g_history;
 
 // Wi-Fi reconnect state (non-blocking supervisor in net.cpp).
 extern bool g_offline;

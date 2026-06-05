@@ -5,7 +5,6 @@
 namespace app {
 
 pyramid::LineReader g_reader;
-pyramid::History g_history(HISTORY_MAX_TURNS);
 
 bool g_offline = false;
 int g_wifiAttempt = 0;
