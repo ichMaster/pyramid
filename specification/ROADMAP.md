@@ -1,6 +1,6 @@
 # Roadmap — M5Stack Voice AI Chatbot ("Pyramid")
 
-Six self-contained versions, built in order: **v0** text → **v1** voice → **v2** server platform → **v3** intelligence & MCP → **v4** devices & presence → **v5** bots & clients. Versions are numbered from 0; phases inside a version are numbered `vA.B` (A = version, B = phase), e.g. `v1.2`. Each phase lists a goal, the work, a task list, and a Definition of Done (DoD). Every phase ships with the automated tests that encode its DoD (see ARCHITECTURE §Testing and CI). Firmware toolchain: **v0 in the Arduino IDE**, migrating to **PlatformIO from v1**.
+Seven self-contained versions, built in order: **v0** text → **v1** voice → **v2** server platform → **v3** intelligence & MCP → **v4** devices & presence → **v5** media understanding & translation → **v6** bots & clients. Versions are numbered from 0; phases inside a version are numbered `vA.B` (A = version, B = phase), e.g. `v1.2`. Each phase lists a goal, the work, a task list, and a Definition of Done (DoD). Every phase ships with the automated tests that encode its DoD (see ARCHITECTURE §Testing and CI). Firmware toolchain: **v0 in the Arduino IDE**, migrating to **PlatformIO from v1**.
 
 ---
 
@@ -449,11 +449,56 @@ Core S3 has everything onboard (ES7210 mic + AW88298 speaker + GC0308 camera + 3
 
 ---
 
-## v5 — Bots & clients
+## v5 — Media understanding & translation
 
-Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), v3 (memory / MCP) and v4 (the emotion face these clients render).
+The assistant turns **media into text**: hand it an **image, an audio clip, or a short video** and it **describes** and/or **translates** the content to text (in the target language) via a **multimodal LLM**. This generalizes the v4.6 camera/vision path (image → description) to audio and video, adds **cross-language translation** (a foreign sign, menu, or spoken clip → Ukrainian text), and exposes it **uniformly** — new `image` / `audio` / `video` inputs on the WS contract and a `media` MCP tool — so any device or client (incl. the v6 bots) can use it. Intelligence stays **server-side**; the device only captures and streams. Depends on: v2 (server), v3 (MCP), v4 (camera capture + the on-device mic).
 
-### v5.1 — Telegram bot
+### v5.1 — Image & document understanding
+
+**Goal:** describe or translate an **image** to text — what's in it, and any text it contains.
+
+Build on the v4.6 `image` contract: the server sends a captured frame (or an uploaded image) to a multimodal LLM and returns a **description**; for documents/signs it also does **OCR + translation** of the text into the target language. Spoken back via TTS, or returned as text to a client.
+
+**Tasks:**
+- Reuse the `image{jpeg}` input (v4.6); add a `mode` (describe / translate / read) and a target language.
+- Server: image → multimodal LLM (with the Role/Canon) → text; for `translate`/`read`, OCR + translate any in-image text.
+- Return text (and TTS audio); surface in the on-screen transcript / to the client.
+
+**DoD:** point the camera at a foreign sign or a photo and get a spoken/text **description or translation**; works from a device and a client.
+
+### v5.2 — Audio understanding & translation
+
+**Goal:** turn an **audio clip** into text beyond plain transcription — describe non-speech sound, and **translate** foreign speech.
+
+A new `audio` understanding input: the server sends the captured PCM (or a clip) to an **audio-capable model**; it can identify/describe non-speech sounds, capture tone, and **transcribe + translate** foreign-language speech into the target-language text. Complements the v1.3 ASR (which stays the fast path for same-language turns).
+
+**Tasks:**
+- Add an `audio{pcm|clip}` understanding input + contract test; `mode` = describe / translate.
+- Server: clip → audio-capable multimodal model → text (description, or transcript + translation); fold into the turn.
+- Optional: voice-emotion/tone → feed the v2.4 emotion engine (the face mirrors the speaker's tone).
+
+**DoD:** record a clip and get a text **description** ("a dog barking over music") or a **translation** of foreign speech; the result is spoken/shown.
+
+### v5.3 — Video understanding
+
+**Goal:** describe a short **video clip** (frames + audio) to text.
+
+The camera boards (v4.6 AtomS3R Camera, v4.7 Core S3) capture a few seconds of **frames + audio**; the server sends them to a **video-capable multimodal LLM** that summarizes/describes the clip (and can translate any speech/text in it). Bounded clip length to keep cost/latency sane.
+
+**Tasks:**
+- Add a `video{frames + audio, duration}` input to the WS contract **and its contract test**; cap clip length.
+- Device: capture a short frame burst (+ the mic audio) on a trigger; stream it.
+- Server: clip → video-capable multimodal LLM → text summary/description (+ optional translation) → reply.
+
+**DoD:** capture a few seconds of video and hear/read a description of what happened; the `video` path has a contract test and keeps the model off-device.
+
+---
+
+## v6 — Bots & clients
+
+Additional **front-ends and channels** to the same assistant, beyond the M5Stack voice devices. Each is a thin **client or bridge** to the v2 server's turn pipeline (Role/Canon, ASR→LLM→TTS, memory, MCP, the `EmotionFrame`, and the v5 media understanding) — the **intelligence stays server-side**, and access stays **closed** (accounts / allowlist). Depends on: v2 (server + Role + auth), v3 (memory / MCP), v4 (the emotion face these clients render) and v5 (media understanding for shared images / voice notes / clips).
+
+### v6.1 — Telegram bot
 
 **Goal:** chat with the assistant from **Telegram** — text, voice notes, and photos — as a private bot.
 
@@ -466,7 +511,7 @@ A server-side Telegram bridge connects the Bot API to the Role/LLM pipeline: tex
 
 **DoD:** an allowlisted Telegram user can text or send a voice note and get the assistant's reply (text + spoken); unknown users are ignored.
 
-### v5.2 — Web voice client + emotion face
+### v6.2 — Web voice client + emotion face
 
 **Goal:** the device experience **in a browser** — push-to-talk / active-listening voice **and the animated emotion face**.
 
@@ -479,7 +524,7 @@ A minimal web app (served by the server) captures mic audio (Web Audio / WebRTC)
 
 **DoD:** open the web client, log in, speak (or type), hear the reply, and watch the on-screen face react — the same Role / `EmotionFrame` as the hardware device.
 
-### v5.3 — Meshtastic bot bridge
+### v6.3 — Meshtastic bot bridge
 
 **Goal:** the assistant answers on a **LoRa Meshtastic mesh** as an off-grid text bot.
 
@@ -506,11 +551,12 @@ The radio is a **Meshtastic node** (e.g. the Cardputer Mesh Kit on stock Meshtas
 - Temperament contract (`temperament.today`) — v3.4.
 - `EmotionFrame` (emotion-face) contract — v2.4 (emoji); same contract reused by the LED halo — v4.1, and the sprite face — v4.5/v4.7.
 - `image` (vision) contract — v4.6; reused by Core S3's onboard camera — v4.7.
+- Media understanding (describe / translate) — `image` mode v5.1, `audio{pcm|clip}` v5.2, `video{frames+audio}` v5.3; unified `media` MCP tool — v5.
 - Name + Canon in the `Role` — v2.2.
 - `input_mode` (push-to-talk / active listening) + `active_listen_window` in the `Role` — v4.3.
-- Telegram bridge (Bot API: text / voice note / photo) — v5.1.
-- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.5 auth) — v5.2.
-- Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v5.3.
+- Telegram bridge (Bot API: text / voice note / photo) — v6.1.
+- Web voice client (reuses the v2.1 WS contract + `EmotionFrame`, behind v2.5 auth) — v6.2.
+- Meshtastic bridge (MQTT / Meshtastic device API; optional `mesh.send` MCP tool) — v6.3.
 - Admin session API (`GET /sessions`, `POST /sessions/{id}/disconnect|restart`, live events) — v2.8.
 
 ## Hardware roadmap
@@ -528,6 +574,6 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 
 The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M5StickS3 reuses the same ES8311 audio, so all three are close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
-## Deferred (beyond v0–v5)
+## Deferred (beyond v0–v6)
 
 Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.4 / halo v4.1 / sprite v4.5 & v4.7, boards per the Hardware roadmap (Echo Pyramid v4.1, M5StickS3 v4.2, Cardputer v1.1 & ADV v4.4, AtomS3R Camera v4.6, Core S3 v4.7), vision v4.6, web search v3.6. The artist "Lili" sprite pack remains a later asset-only swap over v4.5.)

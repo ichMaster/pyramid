@@ -22,7 +22,8 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **multi-session hub**, session admin | ⏭️ next |
 | **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search | 🔜 planned |
 | **v4** | Devices & presence — Echo Pyramid+halo, M5StickS3, active listening, Cardputer, **sprite face**, **camera/vision**, Core S3 | 🔜 planned |
-| **v5** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
+| **v5** | Media understanding & translation — **image / audio / video → text** (describe + translate) via a multimodal LLM | 🔜 planned |
+| **v6** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
 ### v1 phases (done)
 
@@ -34,7 +35,7 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
   end-of-utterance (VAD), mid-turn Wi-Fi / per-stage-timeout recovery, per-turn
   latency + answer-time stats, and an optional on-screen transcript.
 
-## What's next (v2–v5)
+## What's next (v2–v6)
 
 **v2 — Server platform.** Our own backend (**WSS / FastAPI**) sits between the
 device and the AI; the ASR→LLM→TTS loop moves **server-side** and the device
@@ -56,7 +57,13 @@ the LED **halo** (Echo Pyramid), M5StickS3 (two-button gestures + richer UI),
 Camera), and Core S3. See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
-**v5 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
+**v5 — Media understanding & translation.** Hand the assistant an **image,
+audio clip, or short video** and it **describes / translates** it to text via a
+multimodal LLM — generalizing the v4.6 camera path to audio + video, with
+cross-language translation. Server-side; exposed as `image`/`audio`/`video`
+inputs + a `media` MCP tool.
+
+**v6 — Bots & clients.** Front-ends on the same server: a **Telegram bot**
 (text / voice notes / photos), a **web voice client** that renders the face in
 the browser, and a **Meshtastic** LoRa bot — each a thin bridge to the server's
 Role/LLM pipeline (intelligence stays server-side).
@@ -67,7 +74,7 @@ Carried forward into v2 from the v1 work:
   reverted; it belongs server-side).
 - The richer **Лілі** Name + Canon, which becomes the server-side Role.
 
-See [specification/ROADMAP.md](specification/ROADMAP.md) §v2–§v5 for the phase plans and DoDs.
+See [specification/ROADMAP.md](specification/ROADMAP.md) §v2–§v6 for the phase plans and DoDs.
 
 ## Versioning & releases
 
