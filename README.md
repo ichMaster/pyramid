@@ -7,7 +7,7 @@ a living, configurable persona that runs on an **AtomS3R + Echo Base**, speaks
 Ukrainian, and (in later versions) remembers the user, shifts its daily mood by
 a horoscope-derived "temperament", and reaches external services through MCP.
 The device is deliberately **thin** — I/O and a status screen only; all the
-intelligence (LLM, and later ASR/TTS/memory/MCP) lives in the cloud or on a
+intelligence (LLM, ASR, TTS, and later memory/MCP) lives in the cloud or on a
 server.
 
 > Private by design — for the author and a close circle, not a public service.
@@ -36,8 +36,8 @@ Complexity is added **only by version** — each ships standalone, built in orde
 | Version | Theme | Status |
 |---------|-------|--------|
 | **v0** | Text chat over serial — device ↔ cloud LLM directly, text over USB-CDC | **complete** (v0.1–v0.3) |
-| **v1** | Voice — I2S audio, push-to-talk; TTS first, then ASR; PlatformIO | **in progress** (v1.1–v1.2 done; v1.3–v1.4 planned) |
-| **v2** | Server with role config — own backend (WSS/FastAPI), console, accounts, activation | planned |
+| **v1** | Voice — I2S audio, push-to-talk; TTS, then ASR; states/UX; PlatformIO | **complete** (v1.1–v1.4) |
+| **v2** | Server with role config — own backend (WSS/FastAPI), console, accounts, activation | planned (next) |
 | **v3** | Memory, horoscope-temperament, MCP layer | planned |
 
 ## Repository layout
@@ -48,29 +48,40 @@ specification/   # MISSION.md, ARCHITECTURE.md, ROADMAP.md + roadmap/implementat
                  # server/, mcp/, console/, tests/ are created as each version starts
 ```
 
-## Current state (v1.2 — spoken replies)
+## Current state (v1.4 — full voice loop)
 
-Type a line over USB serial and **hear Claude's Ukrainian reply spoken** through
-the Atomic Echo Base. The path: serial `text_in` → Claude over direct HTTPS
-(streamed, with rolling history, retry, Wi-Fi recovery) → ElevenLabs TTS
-(`pcm_16000`) → I2S playback. Built on **v1.1** (PlatformIO + `pio test -e native`
-host tests, and push-to-talk record→playback audio on the ES8311 Echo Base).
-Replies are buffered for smooth, complete playback. Next: **v1.3 — ASR** (speak →
-transcribe → the same LLM→TTS chain).
+**Hold the button, speak Ukrainian, and hear a spoken reply** — the complete
+voice exchange runs on the device: mic → Deepgram **ASR** → Claude (streamed,
+with rolling history, retry, Wi-Fi recovery) → ElevenLabs **TTS** (`pcm_16000`)
+→ I2S playback on the Atomic Echo Base. Typing a line over USB serial is an
+equivalent text path / debug channel.
+
+v1 is complete across four phases:
+- **v1.1** — PlatformIO migration + `pio test -e native` host tests; push-to-talk
+  record→playback on the ES8311 Echo Base.
+- **v1.2** — cloud TTS (spoken replies), buffered for smooth playback.
+- **v1.3** — cloud ASR + the full voice loop; µ-law upload + turbo TTS for latency.
+- **v1.4** — states & UX: a turn-state machine drives the LCD, pause-based
+  end-of-utterance (VAD), mid-turn Wi-Fi/timeout recovery, per-turn latency +
+  answer-time stats, and an optional on-screen transcript.
+
+The default persona is **Піраміда** (a terse Ukrainian helper); the device is
+still direct-to-cloud — its own server arrives in v2.
 
 Build and flash instructions are in [firmware/README.md](firmware/README.md).
-Quick host test of the pure serial logic:
+Run the pure-logic host tests:
 
 ```sh
-cd firmware/test
-c++ -std=c++17 -I../pyramid test_line_reader.cpp -o test_line_reader && ./test_line_reader
+cd firmware && pio test -e native
 ```
 
 ## Releases
 
 The current version lives in [VERSION](VERSION); release notes are in
-[RELEASE.txt](RELEASE.txt). Version mapping: v0 → 0.1.0, v1 → 0.2.0,
-v2 → 0.3.0, v3 → 1.0.0.
+[RELEASE.txt](RELEASE.txt). Versions follow **`A.B.C`** — `A` = roadmap version
+(v0→0, v1→1, v2→2, v3→3), `B` = phase within it (`v1.4` → `1.4.0`), `C` =
+post-release fix. Releases are cut per phase: v1 shipped as 1.1.0 → 1.2.0 →
+1.3.0 → 1.4.0.
 
 ## License
 
