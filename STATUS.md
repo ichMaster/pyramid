@@ -21,8 +21,8 @@ over USB serial is an equivalent text path / debug channel. The turn is legible
 | **v1** | Voice — audio I/O, TTS, ASR, states/UX | ✅ complete (v1.1–v1.4) |
 | **v2** | Server platform — WSS/FastAPI, Role/Canon, console, **emoji face**, closed access, **deploy (Fly.io)**, **active listening** | ⏭️ next |
 | **v3** | Intelligence & MCP — memory, MCP layer, **agent orchestration**, horoscope-temperament, persona, web search, **sprite face** | 🔜 planned |
-| **v4** | Multi-session & administration — **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
-| **v5** | Devices & presence — Echo Pyramid+halo, M5StickS3, Cardputer, **camera/vision**, Core S3 | 🔜 planned |
+| **v4** | Multi-session & devices — Echo Pyramid+halo, M5StickS3, then **multi-session hub** (shared resources) + **session-admin console** | 🔜 planned |
+| **v5** | Devices & presence — Cardputer, **camera/vision**, Core S3 | 🔜 planned |
 | **v6** | Media understanding & translation — **image / audio / video → text** (describe + translate) via a multimodal LLM | 🔜 planned |
 | **v7** | Bots & clients — **Telegram bot**, **web voice client + face**, **Meshtastic** LoRa bot | 🔜 planned |
 
@@ -52,21 +52,21 @@ in v2.7.
 horoscope-**temperament**, persona integration, bounded **web search**, and the
 animated **sprite face** (the richer renderer of the v2.4 emotion channel).
 
-**v4 — Multi-session & administration.** The server becomes a true
-**multi-session hub** — many devices/clients at once, each its own session, all
-sharing one set of per-account resources (Role, pooled providers, and the v3
-memory / MCP / temperament) — plus a **session-admin console**. Comes after v3 so
-the shared mind already exists to share and observe.
+**v4 — Multi-session & devices.** First brings up **two more boards** — Echo
+Pyramid base (+ halo) and the all-in-one M5StickS3 — so there are several device
+types to test with, then makes the server a true **multi-session hub** (many
+devices at once, each its own session, all sharing one set of per-account
+resources — Role, pooled providers, and the v3 memory / MCP / temperament) +
+a **session-admin console**. The boards come first precisely to exercise the hub.
 
-**v5 — Devices & presence.** The M5Stack **board family** — the LED **halo**
-(Echo Pyramid), M5StickS3 (two-button gestures + richer UI), Cardputer v1.1 &
-ADV (keyboard), **camera/vision** (AtomS3R Camera), and Core S3 (which extends
-the v3.6 sprite face to its bigger screen). See
+**v5 — Devices & presence.** The rest of the M5Stack **board family** — the
+**Cardputer** (keyboard), **camera/vision** (AtomS3R Camera), and **Core S3**
+(extends the v3.6 sprite face to its bigger screen, voice + vision onboard). See
 [ROADMAP](specification/ROADMAP.md) §Hardware roadmap for the board matrix.
 
 **v6 — Media understanding & translation.** Hand the assistant an **image,
 audio clip, or short video** and it **describes / translates** it to text via a
-multimodal LLM — generalizing the v5.4 camera path to audio + video, with
+multimodal LLM — generalizing the v5.2 camera path to audio + video, with
 cross-language translation. Server-side; exposed as `image`/`audio`/`video`
 inputs + a `media` MCP tool.
 

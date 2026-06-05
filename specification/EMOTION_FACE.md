@@ -307,7 +307,7 @@ layers, animation frames, sizing, palette, atlas, manifest, and previews.
   `EmotionFrame` from Canon + mood; the device renders the **emoji** tier. The
   `EmotionFrame` contract + emotion enum + `IFaceRenderer` (and the WS contract
   test) are locked here.
-- **v5.1 — emotion halo (Echo Pyramid base).** The WS2812 halo becomes a second
+- **v4.1 — emotion halo (Echo Pyramid base).** The WS2812 halo becomes a second
   renderer of the **same `EmotionFrame`** (color/pattern per emotion, speaking
   pulse) — see §9. No new contract; reuses the v2.4 `emotion` message.
 - **v3.6 — sprite face (Icon).** Swap `EmojiRenderer` → `IconRenderer`: the layer
@@ -316,7 +316,7 @@ layers, animation frames, sizing, palette, atlas, manifest, and previews.
 - **v3.3 — temperament.** Bias the emotion baseline/frequency by the daily
   temperament dials (e.g. higher warmth → more `warm`/`affection`) — presentation
   only, never competence.
-- **Halo (v5.1)** activates whenever the hardware has an LED ring (Echo Pyramid
+- **Halo (v4.1)** activates whenever the hardware has an LED ring (Echo Pyramid
   base); absent on Echo Base.
 
 ---

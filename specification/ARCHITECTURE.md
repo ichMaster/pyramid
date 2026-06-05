@@ -97,7 +97,7 @@ screen, no persona logic.
 
 ## Turn lifecycle
 
-A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v5.1/v2.7). Voice path (v1+):
+A turn is half-duplex (barge-in is deferred — it needs the Echo Pyramid AEC, see v4.1/v2.7). Voice path (v1+):
 
 ```
 button↓ → listen_start → audio(bin)… → button↑ / VAD → listen_stop
@@ -129,11 +129,11 @@ The full emotion enum, layer model, recipe table, and asset-manifest schema live
 Pyramid runs on a **family** of M5Stack boards; the firmware detects capabilities and uses what is present, degrading gracefully when a feature is absent. The `EmotionFrame` contract, emotion enum, and PCM16 16 kHz mono audio format are **identical across boards** — only the renderer / halo / mic driver differ.
 
 - **v1 target — AtomS3R + Echo Base:** ESP32-S3, 128×128 LCD, one button, **ES8311** codec (single mic + speaker). No LED halo, no mic array. (Whether the board exposes usable **PSRAM** is board-dependent — verify and enable it in `platformio.ini` if present; it relaxes the audio-buffer and face-asset SRAM limits hit in v1.2.)
-- **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v5.1:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
-- **Cardputer v1.1 & ADV — v5.3:** ESP32-S3 (StampS3A), 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + amplified speaker. Audio differs — v1.1: SPM1423 PDM mic + NS4168 I2S amp; ADV: ES8311 codec + 1 W speaker + 3.5 mm jack + IMU — both via M5Unified board detection.
-- **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v5.4:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
-- **Core S3 / CoreS3 SE — v5.5:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
-- **M5StickS3 (ESP32-S3 Mini) — v5.2:** all-in-one stick — **ES8311** codec (as Echo Base) + MEMS mic + AW8737 amp + 1 W speaker, 135×240 LCD, 8 MB PSRAM, **two buttons (BtnA+BtnB)**, no base. Adds two-button gestures (single/double/hold → talk/stop/repeat/view/new-chat/volume) and a richer 135×240 UI. (On battery, cap volume ~75% to avoid brown-out.)
+- **AtomS3R + Echo Pyramid base (Voice Pyramid Smart Speaker) — v4.1:** same AtomS3R compute + LCD; adds a **mic array with AEC** (better capture) and an addressable **WS2812 halo** (drives the emotion halo from the same `EmotionFrame`).
+- **Cardputer v1.1 & ADV — v5.1:** ESP32-S3 (StampS3A), 240×135 LCD, built-in **keyboard** (on-device typed input, Enter to send), mic + amplified speaker. Audio differs — v1.1: SPM1423 PDM mic + NS4168 I2S amp; ADV: ES8311 codec + 1 W speaker + 3.5 mm jack + IMU — both via M5Unified board detection.
+- **AtomS3R Camera Kit (OV3660, M12) + Echo Base — v5.2:** same AtomS3R compute, stacked **camera + Echo Base audio** = **voice + vision**; the camera feeds the vision path (the `image` contract).
+- **Core S3 / CoreS3 SE — v5.3:** ESP32-S3, **320×240 touch**, **onboard** mic + speaker + camera; the richest board — voice + vision + a larger sprite face, no base required.
+- **M5StickS3 (ESP32-S3 Mini) — v4.2:** all-in-one stick — **ES8311** codec (as Echo Base) + MEMS mic + AW8737 amp + 1 W speaker, 135×240 LCD, 8 MB PSRAM, **two buttons (BtnA+BtnB)**, no base. Adds two-button gestures (single/double/hold → talk/stop/repeat/view/new-chat/volume) and a richer 135×240 UI. (On battery, cap volume ~75% to avoid brown-out.)
 
 The audio path (16 kHz mono PCM16), the WS contract, the Role/Canon model, and the `EmotionFrame` do not change with the board — adding a board is new drivers + capability flags + per-board input/layout, not a protocol change. The firmware **detects capabilities and degrades gracefully** when a feature (halo, mic array, camera) is absent.
 
