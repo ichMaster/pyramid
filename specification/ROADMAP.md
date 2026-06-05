@@ -229,7 +229,28 @@ The Echo Pyramid base is the **same AtomS3R compute** as Echo Base with a better
 
 **DoD:** on the Echo Pyramid base the halo reflects the per-turn emotion (same `EmotionFrame` as the screen), and the build still runs on plain Echo Base with the halo gracefully absent.
 
-### v2.8 — Cardputer ADV (keyboard input)
+### v2.8 — M5StickS3 (all-in-one stick: extra buttons + richer UI)
+
+**Goal:** run on the **M5StickS3** — a standalone ESP32-S3 stick with the same ES8311 audio as the Echo Base, **two buttons**, and a larger 135×240 screen — using the extra button for richer control and the extra screen for a richer UI.
+
+M5StickS3 needs **no base**: ES8311 codec + MEMS mic + AW8737 amp + 1 W speaker, 8 MB PSRAM, 135×240 LCD, **BtnA + BtnB** (plus power). The ES8311 path maps closely to the Echo Base, so the port is mostly a PlatformIO env, an input layer, and a screen layout.
+
+**Tasks:**
+- Add an `m5sticks3` PlatformIO env; bring up ES8311 mic/speaker via M5Unified (close to the Echo Base path); cap speaker volume (~75%) on battery to avoid brown-out reboots.
+- **Input abstraction + button gestures** (introduced here, reused by the other boards): map gestures → abstract, config-driven actions —
+  - **BtnA hold** → push-to-talk (release / trailing pause ends);
+  - **BtnA click** → tap-to-talk (hands-free, VAD ends) when idle, or **stop / barge-in** when speaking;
+  - **BtnA double-click** → repeat the last reply;
+  - **BtnB click** → toggle view (state screen ↔ transcript);
+  - **BtnB double-click** → new conversation (clear session; confirmed);
+  - **BtnB hold** → volume / mute.
+  AtomS3R (one button) keeps a subset; gestures come from M5Unified (`wasClicked` / `wasDoubleClicked` / `wasHold`).
+- **Richer UI for 135×240** (more than fits on the 128×128 AtomS3R): a scrolling multi-line transcript, a header with the turn state + Wi-Fi + **battery**, a footer with answer-time (last/avg) + token/latency stats, and a mic-level indicator while listening. The emoji face (v2.6) gets more room too.
+- Reuse the v2.1 WSS client + v2.6 emoji face; no protocol change.
+
+**DoD:** M5StickS3 runs the full voice assistant standalone; BtnA/BtnB single/double/hold gestures drive talk / stop / repeat / view / new-chat / volume; the 135×240 screen shows the richer UI (scrolling transcript + state + battery + stats).
+
+### v2.9 — Cardputer ADV (keyboard input)
 
 **Goal:** run on the **M5 Cardputer ADV**, adding on-device typed input (keyboard, Enter to send) alongside voice.
 
@@ -237,7 +258,7 @@ Cardputer ADV is an ESP32-S3 board with a built-in **keyboard**, a 240×135 scre
 
 **Tasks:**
 - Add a `cardputer-adv` PlatformIO env; bring up its mic/speaker via M5Unified and lay out the UI for 240×135.
-- Add an **input abstraction**: a single "talk action" + a "send text" action mapped per board — on Cardputer, type on the keyboard and press **Enter** to send a text turn; a key (or button) for push-to-talk. AtomS3R keeps BtnA.
+- Reuse the **v2.8 input abstraction** and extend it for the keyboard: type and press **Enter** to send a text turn (a "send text" action), and a key for push-to-talk. AtomS3R keeps BtnA; M5StickS3 keeps its two-button gestures.
 - Reuse the v2.1 WSS client and the v2.6 emoji face; no protocol change.
 
 **DoD:** on Cardputer ADV you can either speak **or** type-and-Enter and get a spoken reply; the same firmware logic runs across AtomS3R and Cardputer through the input/layout abstraction.
@@ -383,13 +404,13 @@ The device is a **family**, not one SKU (ARCHITECTURE §Hardware variants). The 
 |-------|-----|-------|----------------|------|-------|
 | AtomS3R + Echo Base | ESP32-S3 | ES8311 (1 mic + spk) | 128×128 · BtnA | — | **v1** (current) |
 | AtomS3R + Echo Pyramid base *(Voice Pyramid Smart Speaker)* | ESP32-S3 (same) | ES8311 + mic-array AEC | 128×128 · BtnA + **WS2812 halo** | emotion **halo** | **v2.7** |
-| Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.8** |
+| M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · **BtnA+BtnB** (gestures) | all-in-one (no base), 2-button gestures, richer UI | **v2.8** |
+| Cardputer ADV | ESP32-S3 | mic + I2S spk | 240×135 · **keyboard** | on-device **typed input** | **v2.9** |
 | AtomS3R Camera Kit (OV3660, M12) **+ Echo Base** | ESP32-S3 (same) | Echo Base (ES8311) | 128×128 · BtnA + **camera** | **voice + vision** | **v3.7** |
 | Core S3 / CoreS3 SE | ESP32-S3 | onboard ES7210 + AW88298 | 320×240 **touch** + **camera** | voice + vision + **larger sprite face** | **v3.8** |
-| M5StickS3 (ESP32-S3 Mini, all-in-one) | ESP32-S3 · 8MB PSRAM | **ES8311** + MEMS mic + AW8737 amp + 1 W speaker | 135×240 · BtnA/B | all-in-one, **no base** | candidate — **confirmed compatible**, schedule TBD |
 
-The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, so they're close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
+The two AtomS3R bases (Echo Pyramid, Camera Kit) share the v1 compute, and the M5StickS3 reuses the same ES8311 audio, so all three are close to drop-in; Cardputer ADV and Core S3 are full ports behind the same contract.
 
 ## Deferred (beyond v0–v3)
 
-Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, Cardputer ADV v2.8, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6. M5StickS3 is a confirmed-compatible all-in-one candidate (ES8311 + MEMS mic + amped speaker, like an Echo Base in a stick) — schedule TBD.)
+Offline wake word, OPUS streaming and barge-in, music and arbitrary custom MCP as official, speaker recognition, OTA, role templates and AI Optimize. (The **emotion face**, **multi-board support**, **vision/camera**, and **web search** are no longer deferred — they are scheduled: face emoji v2.6 / halo v2.7 / sprite v3.6 & v3.8, boards per the Hardware roadmap (Echo Pyramid v2.7, M5StickS3 v2.8, Cardputer ADV v2.9, AtomS3R Camera v3.7, Core S3 v3.8), vision v3.7, web search v3.5. The artist "Lili" sprite pack remains a later asset-only swap over v3.6.)
