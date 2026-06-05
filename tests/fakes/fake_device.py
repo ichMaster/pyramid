@@ -112,12 +112,15 @@ class RecordingTransport:
     def __init__(self):
         self.texts: list[str] = []
         self.binaries: list[bytes] = []
+        self.events: list[tuple[str, object]] = []  # interleaved order
 
     async def send_text(self, text: str) -> None:
         self.texts.append(text)
+        self.events.append(("text", json.loads(text)))
 
     async def send_bytes(self, data: bytes) -> None:
         self.binaries.append(data)
+        self.events.append(("bytes", data))
 
     # convenience views
     @property

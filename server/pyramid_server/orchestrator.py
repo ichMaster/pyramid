@@ -13,6 +13,7 @@ from .history import ChatMessage, window
 from .prompt import assemble_system
 from .providers.base import ASRProvider, LLMProvider, TTSProvider
 from .router import TurnContext
+from .sentence import PhraseSplitter
 
 
 class Orchestrator:
@@ -64,18 +65,30 @@ class Orchestrator:
             max_chars=self.history_max_chars,
         )
 
+        # Sentence-streaming TTS (rec #3): synthesize each phrase as it completes
+        # while the LLM is still generating, so the first audio leaves early.
         reply_parts: list[str] = []
+        splitter = PhraseSplitter()
         async for delta in self.llm.stream(system, messages):
-            if delta:
-                reply_parts.append(delta)
-                await ctx.reply_delta(delta)
+            if not delta:
+                continue
+            reply_parts.append(delta)
+            await ctx.reply_delta(delta)
+            for phrase in splitter.feed(delta):
+                await self._speak(ctx, phrase)
         await ctx.reply_delta("", done=True)
+
+        tail = splitter.flush()  # the final phrase / whole short reply
+        if tail:
+            await self._speak(ctx, tail)
+
         reply_text = "".join(reply_parts)
         session.history.append(ChatMessage(role="assistant", text=reply_text))
-
-        async for pcm in self.tts.synthesize(reply_text):
-            await ctx.tts_audio(pcm)
         await ctx.tts_end()
+
+    async def _speak(self, ctx: TurnContext, phrase: str) -> None:
+        async for pcm in self.tts.synthesize(phrase):
+            await ctx.tts_audio(pcm)
 
 
 def build_default_orchestrator(settings) -> Orchestrator | None:
